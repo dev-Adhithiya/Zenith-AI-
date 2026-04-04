@@ -1,0 +1,24 @@
+# Zenith AI - Personal Assistant
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+email-validator
+google-cloud-firestore
+google-cloud-aiplatform
+google-cloud-pubsub
+google-cloud-secret-manager
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
+vertexai
+python-dateutil
+pytz
+tenacity
+structlog
+python-dotenv

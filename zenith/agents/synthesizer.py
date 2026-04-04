@@ -1,0 +1,258 @@
+"""
+Synthesizer Agent for Zenith AI
+Phase 3: Synthesis & Response - Generates natural language responses
+"""
+from typing import Optional
+import structlog
+
+from .vertex_ai import VertexAIClient, get_vertex_client
+
+logger = structlog.get_logger()
+
+
+class SynthesizerAgent:
+    """
+    Synthesizer Agent - Responsible for Phase 3: Synthesis & Response
+    
+    Responsibilities:
+    - Generate natural language responses
+    - Summarize tool execution results
+    - Maintain conversational tone
+    """
+    
+    def __init__(self, vertex_client: Optional[VertexAIClient] = None):
+        self.llm = vertex_client or get_vertex_client()
+        
+        self.system_instruction = """You are Zenith, an elite, highly intelligent Personal Assistant AI.
+Your tone is proactive, concise, warm, and highly competent.
+
+Guidelines:
+- Be conversational and natural, not robotic
+- Keep responses concise but informative
+- Proactively offer helpful follow-up actions
+- When presenting data (emails, events, tasks), format it clearly
+- Use appropriate emoji sparingly for warmth 📅✉️✅
+- If something failed, explain clearly and suggest alternatives
+- Remember context from the conversation
+
+When presenting lists:
+- Use bullet points for clarity
+- Include key details (dates, times, people)
+- Highlight what's important or urgent"""
+    
+    async def synthesize(
+        self,
+        context: dict,
+        execution_results: Optional[dict] = None
+    ) -> str:
+        """
+        Generate a natural language response.
+        
+        Args:
+            context: Context dictionary from ContextAgent
+            execution_results: Results from tool execution (if any)
+            
+        Returns:
+            Natural language response
+        """
+        user_message = context.get("original_message", "")
+        resolved_message = context.get("resolved_message", user_message)
+        chat_history = context.get("chat_history", [])
+        intent = context.get("intent", {})
+        
+        # Build prompt based on whether we have execution results
+        if execution_results:
+            prompt = await self._build_results_prompt(
+                user_message=resolved_message,
+                results=execution_results
+            )
+        else:
+            # Pure conversation response
+            prompt = resolved_message
+        
+        response = await self.llm.generate(
+            prompt=prompt,
+            system_instruction=self.system_instruction,
+            chat_history=chat_history,
+            temperature=0.7
+        )
+        
+        logger.info("Synthesized response", response_length=len(response))
+        
+        return response
+    
+    async def _build_results_prompt(
+        self,
+        user_message: str,
+        results: dict
+    ) -> str:
+        """Build a prompt that includes execution results."""
+        
+        prompt_parts = [f"User asked: {user_message}\n"]
+        
+        # Add execution results
+        if results.get("success"):
+            prompt_parts.append("I successfully completed the following actions:\n")
+            
+            for step_result in results.get("step_results", []):
+                action = step_result.get("action", "")
+                data = step_result.get("data", {})
+                
+                prompt_parts.append(f"\n**{action}:**\n")
+                prompt_parts.append(self._format_result_data(action, data))
+        else:
+            prompt_parts.append(f"There was an error: {results.get('error', 'Unknown error')}\n")
+        
+        prompt_parts.append("\nGenerate a natural response to the user based on these results.")
+        prompt_parts.append("Be concise, warm, and offer relevant follow-up actions if appropriate.")
+        
+        return "\n".join(prompt_parts)
+    
+    def _format_result_data(self, action: str, data) -> str:
+        """Format result data for the LLM prompt."""
+        import json
+        
+        if isinstance(data, list):
+            if len(data) == 0:
+                return "No results found.\n"
+            
+            # Format based on action type
+            if "event" in action or "calendar" in action:
+                return self._format_events(data)
+            elif "message" in action or "email" in action or "gmail" in action:
+                return self._format_emails(data)
+            elif "task" in action:
+                return self._format_tasks(data)
+            elif "note" in action:
+                return self._format_notes(data)
+        
+        elif isinstance(data, dict):
+            # Single item or summary
+            if "messages" in data:
+                # Inbox summary
+                return self._format_inbox_summary(data)
+            elif "summary" in data:
+                # Event
+                return self._format_events([data])
+            elif "subject" in data:
+                # Email
+                return self._format_emails([data])
+        
+        # Fallback to JSON
+        return json.dumps(data, indent=2, default=str)[:1000]
+    
+    def _format_events(self, events: list) -> str:
+        """Format calendar events."""
+        lines = []
+        for event in events[:10]:
+            start = event.get("start", "")
+            summary = event.get("summary", "(No title)")
+            location = event.get("location", "")
+            meet_link = event.get("meet_link", "")
+            
+            line = f"- **{summary}** at {start}"
+            if location:
+                line += f" ({location})"
+            if meet_link:
+                line += f" [Meet link: {meet_link}]"
+            lines.append(line)
+        
+        return "\n".join(lines) + "\n"
+    
+    def _format_emails(self, emails: list) -> str:
+        """Format email messages."""
+        lines = []
+        for email in emails[:10]:
+            subject = email.get("subject", "(No subject)")
+            sender = email.get("from", "Unknown")
+            snippet = email.get("snippet", "")[:100]
+            is_unread = "🔵 " if email.get("is_unread") else ""
+            
+            lines.append(f"- {is_unread}**{subject}** from {sender}")
+            if snippet:
+                lines.append(f"  {snippet}...")
+        
+        return "\n".join(lines) + "\n"
+    
+    def _format_tasks(self, tasks: list) -> str:
+        """Format tasks."""
+        lines = []
+        for task in tasks[:10]:
+            title = task.get("title", "(No title)")
+            due = task.get("due", "")
+            status = "✅" if task.get("is_completed") else "⬜"
+            
+            line = f"- {status} {title}"
+            if due:
+                line += f" (due: {due})"
+            lines.append(line)
+        
+        return "\n".join(lines) + "\n"
+    
+    def _format_notes(self, notes: list) -> str:
+        """Format notes."""
+        lines = []
+        for note in notes[:5]:
+            title = note.get("title", "(Untitled)")
+            tags = note.get("tags", [])
+            snippet = note.get("content", "")[:100]
+            
+            tag_str = " ".join([f"#{t}" for t in tags]) if tags else ""
+            lines.append(f"- **{title}** {tag_str}")
+            if snippet:
+                lines.append(f"  {snippet}...")
+        
+        return "\n".join(lines) + "\n"
+    
+    def _format_inbox_summary(self, summary: dict) -> str:
+        """Format inbox summary."""
+        lines = [
+            f"Total messages: {summary.get('total_count', 0)}",
+            f"Unread: {summary.get('unread_count', 0)}",
+            f"Important: {summary.get('important_count', 0)}",
+            "",
+            "Top senders:"
+        ]
+        
+        senders = summary.get("senders", {})
+        for sender, count in sorted(senders.items(), key=lambda x: x[1], reverse=True)[:5]:
+            lines.append(f"- {sender}: {count} messages")
+        
+        return "\n".join(lines) + "\n"
+    
+    async def generate_followup_suggestions(
+        self,
+        context: dict,
+        execution_results: Optional[dict] = None
+    ) -> list[str]:
+        """Generate relevant follow-up action suggestions."""
+        
+        system_instruction = """Based on the conversation and results, suggest 2-3 relevant follow-up actions.
+Output as a JSON array of short action phrases.
+Examples: ["Schedule a follow-up meeting", "Reply to John's email", "Add this to my tasks"]
+Output valid JSON array only."""
+        
+        prompt_parts = [f"User asked: {context.get('resolved_message', '')}"]
+        
+        if execution_results and execution_results.get("success"):
+            prompt_parts.append(f"Results: {str(execution_results)[:500]}")
+        
+        prompt_parts.append("\nSuggest relevant follow-up actions:")
+        
+        response = await self.llm.generate(
+            prompt="\n".join(prompt_parts),
+            system_instruction=system_instruction,
+            temperature=0.5,
+            max_tokens=200
+        )
+        
+        import json
+        try:
+            response = response.strip()
+            if response.startswith("```"):
+                response = response.split("```")[1]
+                if response.startswith("json"):
+                    response = response[4:]
+            return json.loads(response)
+        except json.JSONDecodeError:
+            return []
