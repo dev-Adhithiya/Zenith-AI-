@@ -125,8 +125,8 @@ async def health_check():
 
 @app.get("/", tags=["System"])
 async def root():
-    """Serve the main UI."""
-    return FileResponse("static/index.html")
+    """Redirect to frontend - this is the backend API server."""
+    return FileResponse("static/redirect.html")
 
 
 # ==================== Authentication ====================
@@ -206,14 +206,17 @@ async def auth_callback(
             "is_new_user": str(is_new).lower()
         })
         
-        return RedirectResponse(url=f"/?auth_success=true#{auth_data}")
+        # Redirect to frontend (port 3000 in development)
+        frontend_url = "http://localhost:3000"
+        return RedirectResponse(url=f"{frontend_url}/?auth_success=true#{auth_data}")
         
     except Exception as e:
         error_msg = str(e)
         logger.error("Authentication failed", error=error_msg)
         # Redirect to frontend with error
+        frontend_url = "http://localhost:3000"
         encoded_error = urllib.parse.quote(error_msg)
-        return RedirectResponse(url=f"/?auth_error={encoded_error}")
+        return RedirectResponse(url=f"{frontend_url}/?auth_error={encoded_error}")
 
 
 @app.get("/auth/me", response_model=UserResponse, tags=["Authentication"])
@@ -607,6 +610,26 @@ async def create_session(
     )
     
     return {"session_id": session_id}
+
+
+@app.get("/chat/sessions/{session_id}", tags=["Sessions"])
+async def get_session_messages(
+    session_id: str,
+    current_user: dict = Depends(require_auth),
+    memory: ConversationMemory = Depends(get_conversation_memory)
+):
+    """Get messages for a specific session."""
+    messages = await memory.get_context_window(
+        user_id=current_user["user_id"],
+        session_id=session_id,
+        max_messages=100
+    )
+    
+    return {
+        "session_id": session_id,
+        "messages": messages,
+        "count": len(messages)
+    }
 
 
 # ==================== User Settings ====================

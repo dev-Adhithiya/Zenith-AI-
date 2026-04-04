@@ -21,6 +21,16 @@ from config import settings
 
 logger = structlog.get_logger()
 
+# Map finish reasons to human-readable messages
+FINISH_REASON_MESSAGES = {
+    0: "FINISH_REASON_UNSPECIFIED",
+    1: "STOP - natural completion",
+    2: "MAX_TOKENS - token limit reached",
+    3: "SAFETY - blocked by safety filters",
+    4: "RECITATION - blocked for recitation",
+    5: "OTHER - other reason"
+}
+
 
 class VertexAIClient:
     """
@@ -43,26 +53,26 @@ class VertexAIClient:
             "temperature": 0.7,
             "top_p": 0.95,
             "top_k": 40,
-            "max_output_tokens": 2048,
+            "max_output_tokens": 8192,
         }
         
-        # Safety settings
+        # Minimal safety settings - disabled to prevent blocking
         self.safety_settings = [
             SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
+                threshold=HarmBlockThreshold.BLOCK_NONE
             ),
             SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
+                threshold=HarmBlockThreshold.BLOCK_NONE
             ),
             SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
+                threshold=HarmBlockThreshold.BLOCK_NONE
             ),
             SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                threshold=HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
+                threshold=HarmBlockThreshold.BLOCK_NONE
             ),
         ]
         
@@ -130,15 +140,71 @@ class VertexAIClient:
                 safety_settings=self.safety_settings
             )
             
+            # Check if response was blocked or truncated
+            if not response.candidates or not response.candidates[0]:
+                # Check if blocked by safety
+                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                    block_reason = getattr(response.prompt_feedback, 'block_reason', 'Unknown')
+                    logger.warning("Response blocked by safety filters", reason=block_reason)
+                    return "I apologize, but I couldn't process that request. Please try rephrasing your question."
+                logger.error("No response candidates returned - API issue detected", 
+                           response_obj=str(response))
+                return "I apologize, but I couldn't generate a response. Please try again."
+            
+            candidate = response.candidates[0]
+            
+            # If no content parts at all, retry or give user-friendly error
+            if not hasattr(candidate, 'content') or not candidate.content or not candidate.content.parts:
+                logger.warning("Response has no content parts", 
+                              finish_reason=getattr(candidate, 'finish_reason', 'unknown'))
+                return "I received an empty response from the API. Please try your question again."
+            
+            # Get finish reason - handle both int and enum types
+            finish_reason = candidate.finish_reason
+            finish_reason_int = finish_reason if isinstance(finish_reason, int) else getattr(finish_reason, 'value', finish_reason)
+            finish_reason_str = FINISH_REASON_MESSAGES.get(finish_reason_int, str(finish_reason))
+            
+            # Handle different finish reasons
+            if finish_reason_int == 3:  # SAFETY
+                logger.warning("Response blocked by safety filters", finish_reason=finish_reason_str)
+                return "I apologize, but I couldn't generate a response for that request. Please try rephrasing your question."
+            
+            if finish_reason_int == 4:  # RECITATION
+                logger.warning("Response blocked for recitation", finish_reason=finish_reason_str)
+                return "I apologize, but I couldn't complete that response. Please try a different approach."
+            
+            if finish_reason_int == 2:  # MAX_TOKENS
+                logger.warning("Response truncated due to MAX_TOKENS limit.")
+                # Still return partial response if we have text
+                if candidate.content and candidate.content.parts:
+                    partial_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+                    if partial_text:
+                        return partial_text + "\n\n[Response truncated]"
+                return "The response was too long. Please try a more specific question."
+            
+            # Check if content has parts
+            if not candidate.content or not candidate.content.parts:
+                logger.warning("No content in response", finish_reason=finish_reason_str)
+                return "I couldn't generate a response. Please try again with a different question."
+            
+            # Extract text from parts
+            response_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+            
+            if not response_text:
+                logger.warning("Empty text in response parts", finish_reason=finish_reason_str)
+                return "I received an empty response. Please try again."
+            
             logger.debug("Generated response", 
                         prompt_length=len(prompt),
-                        response_length=len(response.text))
+                        response_length=len(response_text),
+                        finish_reason=finish_reason_str)
             
-            return response.text
+            return response_text
             
         except Exception as e:
             logger.error("Generation failed", error=str(e))
-            raise
+            # Return a user-friendly error message instead of raising
+            return f"I encountered an issue while processing your request. Please try again. (Error: {str(e)[:100]})"
     
     async def generate_stream(
         self,
@@ -191,13 +257,33 @@ class VertexAIClient:
                 stream=True
             )
             
+            has_content = False
             async for chunk in response:
-                if chunk.text:
+                # Handle both text and other part types
+                if hasattr(chunk, 'text') and chunk.text:
+                    has_content = True
                     yield chunk.text
+                elif hasattr(chunk, 'candidates') and chunk.candidates:
+                    for candidate in chunk.candidates:
+                        if hasattr(candidate, 'finish_reason'):
+                            finish_reason = candidate.finish_reason
+                            finish_reason_int = finish_reason if isinstance(finish_reason, int) else getattr(finish_reason, 'value', 3)
+                            if finish_reason_int == 3:  # SAFETY blocked
+                                logger.warning("Stream response blocked by safety filters", finish_reason=finish_reason_int)
+                                yield "\n\nI apologize, but I couldn't complete that response. Please try rephrasing your question."
+                                return
+                        if hasattr(candidate, 'content') and candidate.content and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    has_content = True
+                                    yield part.text
+            
+            if not has_content:
+                yield "I apologize, but I couldn't generate a response. Please try again."
                     
         except Exception as e:
             logger.error("Streaming generation failed", error=str(e))
-            raise
+            yield f"An error occurred: {str(e)[:100]}"
     
     async def classify_intent(
         self,
