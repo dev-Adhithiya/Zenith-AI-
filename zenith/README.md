@@ -199,7 +199,7 @@ zenith/
 | `GOOGLE_CLIENT_SECRET` | OAuth Client Secret | Yes |
 | `JWT_SECRET_KEY` | Secret for JWT tokens | Yes |
 | `GCP_REGION` | GCP Region (default: us-central1) | No |
-| `VERTEX_AI_MODEL` | Vertex AI model (default: gemini-1.5-pro-001) | No |
+| `VERTEX_AI_MODEL` | Vertex AI model (default: gemini-2.5-flash) | No |
 | `DEBUG` | Debug mode (default: false) | No |
 
 ## License

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     
     # Vertex AI Configuration
     vertex_ai_model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash",
         env="VERTEX_AI_MODEL"
     )
     vertex_ai_location: str = Field(

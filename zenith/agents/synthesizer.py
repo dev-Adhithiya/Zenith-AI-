@@ -243,7 +243,7 @@ Output valid JSON array only."""
             prompt="\n".join(prompt_parts),
             system_instruction=system_instruction,
             temperature=0.5,
-            max_tokens=200
+            max_tokens=800
         )
         
         import json

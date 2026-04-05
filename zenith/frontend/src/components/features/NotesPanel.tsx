@@ -20,6 +20,7 @@ export function NotesPanel() {
     queryKey: ['notes'],
     queryFn: () => notesAPI.listNotes(20),
     enabled: isAuthenticated,
+    refetchInterval: 3000,
   });
 
   const saveNoteMutation = useMutation({

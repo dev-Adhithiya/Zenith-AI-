@@ -206,6 +206,31 @@ class DecomposerAgent:
                 for param in step["params"]:
                     if param in entities:
                         step_params[param] = entities[param]
+                    elif param == "title" and entities.get("task_descriptions"):
+                        step_params[param] = entities["task_descriptions"][0]
+                    elif param == "title" and entities.get("meeting_names"):
+                        step_params[param] = entities["meeting_names"][0]
+                    elif param == "summary" and entities.get("meeting_names"):
+                        step_params[param] = entities["meeting_names"][0]
+                    elif param == "query" and entities.get("search_queries"):
+                        step_params[param] = entities["search_queries"][0]
+                    elif param == "text" and entities.get("task_descriptions"):
+                        step_params[param] = entities["task_descriptions"][0]
+                    elif param == "text" and entities.get("meeting_names"):
+                        step_params[param] = entities["meeting_names"][0]
+                    
+                    # If param is thread_id, we need to defer to _generate_plan if missing
+                    if param == "thread_id" and "thread_id" not in step_params:
+                        return None
+                
+                # Validation for critical params
+                action = step["action"]
+                if action == "tasks.add_task" and "title" not in step_params:
+                    return None
+                if action == "gmail.get_thread" and "thread_id" not in step_params:
+                    return None
+                if action == "calendar.create_event" and "summary" not in step_params:
+                    return None
                 
                 steps.append({
                     "action": step["action"],
@@ -234,8 +259,8 @@ Available tools:
 - calendar.create_event(summary, start_time, end_time, description, attendees, conference_data)
 - calendar.quick_add(text)
 - calendar.check_availability(time_min, time_max)
-- gmail.search_messages(query, max_results)
-- gmail.get_thread(thread_id)
+- gmail.search_messages(query, max_results)  # ALWAYS use first to find messages or thread_ids
+- gmail.get_thread(thread_id)  # ONLY use if you ALREADY KNOW the exact hex thread_id string
 - gmail.summarize_inbox(hours)
 - gmail.send_email(to, subject, body)
 - tasks.add_task(title, notes, due_date)
