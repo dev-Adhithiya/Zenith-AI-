@@ -51,7 +51,7 @@ class UserStore:
             "google_id": google_user_info.get("id"),
             "credentials": credentials,
             "settings": {
-                "timezone": "UTC",
+                "timezone": "Etc/UTC",
                 "language": "en",
                 "notifications_enabled": True
             },

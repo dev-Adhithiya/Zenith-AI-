@@ -75,6 +75,15 @@ function EmailDetailModal({ email, onClose }: EmailDetailModalProps) {
                     Failed to load full message.
                     <p className="text-white/70 mt-2">{email.snippet}</p>
                   </div>
+                ) : fullEmail?.body_html ? (
+                  <div className="bg-white rounded-lg p-2 overflow-hidden mt-2">
+                    <iframe
+                      srcDoc={fullEmail.body_html}
+                      title="Email Content"
+                      className="w-full min-h-[500px] bg-white border-0"
+                      sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+                    />
+                  </div>
                 ) : (
                   <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap select-text break-words">
                     {fullEmail?.body_text || fullEmail?.snippet || email.snippet}

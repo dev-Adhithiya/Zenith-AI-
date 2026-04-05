@@ -21,8 +21,7 @@ PLAN_TEMPLATES = {
     "create_meeting": {
         "name": "Create Meeting",
         "steps": [
-            {"action": "calendar.check_availability", "params": ["time_min", "time_max"]},
-            {"action": "calendar.create_event", "params": ["summary", "start_time", "end_time", "attendees", "conference_data"]}
+            {"action": "calendar.create_event", "params": ["summary", "start_time", "end_time", "attendees", "conference_data", "description"]}
         ]
     },
     "quick_add_event": {
@@ -132,6 +131,9 @@ class DecomposerAgent:
         # Merge entities
         all_entities = {**entities, **resolved_entities}
         
+        # Pass user_profile into plan generation
+        user_profile = context.get("user_profile", {})
+        
         # Try to match to a template first
         plan = await self._match_template(intent_name, tools_needed, all_entities)
         
@@ -218,6 +220,22 @@ class DecomposerAgent:
                         step_params[param] = entities["task_descriptions"][0]
                     elif param == "text" and entities.get("meeting_names"):
                         step_params[param] = entities["meeting_names"][0]
+                    elif param == "time_min" and entities.get("start_time"):
+                        step_params[param] = entities["start_time"]
+                    elif param == "time_max" and entities.get("end_time"):
+                        step_params[param] = entities["end_time"]
+                    elif param == "to" and entities.get("emails"):
+                        step_params[param] = entities["emails"]
+                    elif param == "subject":
+                        if entities.get("email_subjects"):
+                            step_params[param] = entities["email_subjects"][0]
+                        elif entities.get("task_descriptions"):
+                            step_params[param] = entities["task_descriptions"][0]
+                    elif param == "body":
+                        if entities.get("email_bodies"):
+                            step_params[param] = entities["email_bodies"][0]
+                        elif entities.get("task_descriptions") and len(entities["task_descriptions"]) > 1:
+                            step_params[param] = entities["task_descriptions"][-1]
                     
                     # If param is thread_id, we need to defer to _generate_plan if missing
                     if param == "thread_id" and "thread_id" not in step_params:
@@ -231,7 +249,9 @@ class DecomposerAgent:
                     return None
                 if action == "gmail.get_thread" and "thread_id" not in step_params:
                     return None
-                if action == "calendar.create_event" and "summary" not in step_params:
+                if action == "gmail.send_email" and ("to" not in step_params or "subject" not in step_params or "body" not in step_params):
+                    return None
+                if action == "calendar.create_event" and ("summary" not in step_params or "start_time" not in step_params or "end_time" not in step_params):
                     return None
                 
                 steps.append({
@@ -253,12 +273,36 @@ class DecomposerAgent:
     
     async def _generate_plan(self, context: dict) -> dict:
         """Generate a custom execution plan using LLM."""
-        system_instruction = """You are a task decomposition agent for a personal assistant.
+        import datetime
+        import zoneinfo
+        
+        user_profile = context.get("user_profile", {})
+        timezone_str = user_profile.get("settings", {}).get("timezone", "UTC")
+        user_name = user_profile.get("name", "User")
+        user_email = user_profile.get("email", "")
+        
+        tz = None
+        try:
+            # Try to load the timezone from zoneinfo
+            tz = zoneinfo.ZoneInfo(timezone_str)
+        except Exception:
+            try:
+                # Fallback to standard IANA timezone if provided
+                tz = zoneinfo.ZoneInfo("Etc/UTC")
+            except Exception:
+                # Last resort: use datetime.timezone.utc
+                tz = datetime.timezone.utc
+            
+        current_dt = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+        
+        system_instruction = f"""You are a task decomposition agent for a personal assistant.
 Given a user request and context, create an execution plan.
+The user's name is {user_name} ({user_email}). When drafting emails, ensure you use the user's name ({user_name}) as the sender and choose an appropriate contextual subject.
+The current date and time is {current_dt}.
 
 Available tools:
 - calendar.list_events(time_min, time_max, max_results, query)
-- calendar.create_event(summary, start_time, end_time, description, attendees, conference_data)
+- calendar.create_event(summary, start_time, end_time, description, attendees, conference_data)  # Set conference_data=true to generate a Google Meet link. MUST use this for meetings instead of tasks.
 - calendar.quick_add(text)
 - calendar.check_availability(time_min, time_max)
 - gmail.search_messages(query, max_results)  # ALWAYS use first to find messages or thread_ids
@@ -272,20 +316,22 @@ Available tools:
 - notes.query_knowledge_base(query)
 
 Output a JSON execution plan:
-{
+{{
     "type": "tool_execution",
     "requires_execution": true,
     "name": "Plan Name",
     "steps": [
-        {
+        {{
             "action": "tool.method",
-            "params": {"param1": "value1"},
+            "params": {{"param1": "value1"}},
             "description": "What this step does"
-        }
+        }}
     ]
-}
+}}
 
-Extract parameter values from the context when available.
+Extract parameter values from the context when available. 
+If the user asks you to draft or generate content (like an email body or event description), you MUST write/generate that content yourself and include it in the parameters.
+If the user mentions "meeting", "meet link", or "video call", you MUST output an action for `calendar.create_event` and explicitly set `"conference_data": true` in the parameters instead of adding a task!
 For dates/times, use ISO format (YYYY-MM-DDTHH:MM:SS).
 Output valid JSON only."""
 
@@ -304,12 +350,20 @@ Create an execution plan:"""
         )
         
         import json
+        import re
         try:
             response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
+            # Try to extract content between triple backticks if present
+            if "```" in response:
+                match = re.search(r'```(?:json)?\s*(.*?)\s*```', response, re.DOTALL)
+                if match:
+                    response = match.group(1)
+            # Find the first '{' and last '}' to handle any conversational wrapper
+            start_idx = response.find("{")
+            end_idx = response.rfind("}")
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                response = response[start_idx:end_idx+1]
+                
             return json.loads(response)
         except json.JSONDecodeError:
             logger.warning("Failed to parse execution plan", response=response)

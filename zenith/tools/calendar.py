@@ -68,10 +68,13 @@ class CalendarTools:
             time_max = time_min + timedelta(days=7)
         
         try:
+            time_min_str = time_min.isoformat() if (time_min.tzinfo or "+" in time_min.isoformat()) else time_min.isoformat() + "Z"
+            time_max_str = time_max.isoformat() if (time_max.tzinfo or "+" in time_max.isoformat()) else time_max.isoformat() + "Z"
+            
             request_params = {
                 "calendarId": calendar_id,
-                "timeMin": time_min.isoformat() + "Z",
-                "timeMax": time_max.isoformat() + "Z",
+                "timeMin": time_min_str,
+                "timeMax": time_max_str,
                 "maxResults": max_results,
                 "singleEvents": True,
                 "orderBy": "startTime"
@@ -150,15 +153,26 @@ class CalendarTools:
         service = self._get_service(credentials)
         start_time = _parse_dt(start_time)
         end_time = _parse_dt(end_time)
+        
+        if timezone == "UTC":
+            try:
+                import tzlocal
+                timezone = tzlocal.get_localzone_name()
+            except Exception:
+                pass
+
+        # Force naive datetime so calendar API adopts the timeZone setting completely
+        start_time_naive = start_time.replace(tzinfo=None)
+        end_time_naive = end_time.replace(tzinfo=None)
 
         event_body = {
             "summary": summary,
             "start": {
-                "dateTime": start_time.isoformat(),
+                "dateTime": start_time_naive.isoformat(),
                 "timeZone": timezone
             },
             "end": {
-                "dateTime": end_time.isoformat(),
+                "dateTime": end_time_naive.isoformat(),
                 "timeZone": timezone
             }
         }
@@ -170,7 +184,12 @@ class CalendarTools:
             event_body["location"] = location
         
         if attendees:
-            event_body["attendees"] = [{"email": email} for email in attendees]
+            if isinstance(attendees, str):
+                attendees = [a.strip() for a in attendees.replace(';', ',').split(',')]
+            
+            valid_attendees = [{"email": email.strip()} for email in attendees if isinstance(email, str) and email.strip() and email.strip().lower() not in ['none', 'null', 'n/a']]
+            if valid_attendees:
+                event_body["attendees"] = valid_attendees
         
         if conference_data:
             event_body["conferenceData"] = {
@@ -380,9 +399,12 @@ class CalendarTools:
         time_max = _parse_dt(time_max)
 
         try:
+            time_min_str = time_min.isoformat() if (time_min.tzinfo or "+" in time_min.isoformat()) else time_min.isoformat() + "Z"
+            time_max_str = time_max.isoformat() if (time_max.tzinfo or "+" in time_max.isoformat()) else time_max.isoformat() + "Z"
+            
             body = {
-                "timeMin": time_min.isoformat() + "Z",
-                "timeMax": time_max.isoformat() + "Z",
+                "timeMin": time_min_str,
+                "timeMax": time_max_str,
                 "items": [{"id": cal_id} for cal_id in calendar_ids]
             }
             

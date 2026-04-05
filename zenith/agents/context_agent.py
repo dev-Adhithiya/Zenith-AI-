@@ -38,7 +38,8 @@ class ContextAgent:
         user_id: str,
         session_id: str,
         user_message: str,
-        include_knowledge_base: bool = True
+        include_knowledge_base: bool = True,
+        user_profile: dict = None
     ) -> dict:
         """
         Gather all relevant context for processing a user message.
@@ -48,11 +49,15 @@ class ContextAgent:
             session_id: Current conversation session ID
             user_message: The user's message
             include_knowledge_base: Whether to query knowledge base
+            user_profile: The user profile dictionary
             
         Returns:
             Context dictionary with resolved message, history, and relevant data
         """
         logger.info("Gathering context", user_id=user_id, session_id=session_id)
+        
+        if user_profile is None:
+            user_profile = {}
         
         # Step 1: Get chat history
         chat_history = await self.memory.get_context_window(
@@ -68,7 +73,7 @@ class ContextAgent:
         )
         
         # Step 3: Extract entities mentioned
-        entities = await self._extract_entities(resolved_message)
+        entities = await self._extract_entities(resolved_message, user_profile)
         
         # Step 4: Query knowledge base if needed
         relevant_notes = []
@@ -95,7 +100,8 @@ class ContextAgent:
             "relevant_notes": relevant_notes,
             "intent": intent,
             "user_id": user_id,
-            "session_id": session_id
+            "session_id": session_id,
+            "user_profile": user_profile
         }
         
         logger.info("Context gathered", 
@@ -140,19 +146,41 @@ class ContextAgent:
         
         return user_message
     
-    async def _extract_entities(self, message: str) -> dict:
+    async def _extract_entities(self, message: str, user_profile: dict = None) -> dict:
         """Extract named entities and search queries from the message."""
-        system_instruction = """Extract entities from the user message for a personal assistant.
+        import datetime
+        import zoneinfo
+        
+        timezone_str = user_profile.get("settings", {}).get("timezone", "UTC") if user_profile else "UTC"
+        
+        tz = None
+        try:
+            # Try to load the timezone from zoneinfo
+            tz = zoneinfo.ZoneInfo(timezone_str)
+        except Exception:
+            try:
+                # Fallback to standard IANA timezone if provided
+                tz = zoneinfo.ZoneInfo("Etc/UTC")
+            except Exception:
+                # Last resort: use datetime.timezone.utc
+                tz = datetime.timezone.utc
+            
+        current_dt = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+        
+        system_instruction = f"""Extract entities from the user message for a personal assistant.
+The current date and time is {current_dt}.  Use this as a reference point for relative dates (today, tomorrow, next week).
 Output a JSON object with:
-{
+{{
     "dates": ["YYYY-MM-DD", ...],  // Any dates mentioned
     "times": ["HH:MM", ...],  // Any times mentioned
     "people": ["name", ...],  // Names of people
     "emails": ["email@example.com", ...],  // Email addresses
     "meeting_names": ["meeting title", ...],  // Meeting/event names
     "task_descriptions": ["task", ...],  // Task descriptions
-    "search_queries": ["query", ...]  // Key phrases to search for
-}
+    "search_queries": ["query", ...],  // Key phrases to search for
+    "email_subjects": ["subject", ...], // Email subjects
+    "email_bodies": ["message content", ...] // Any text dictated for an email body or drafting content
+}}
 
 Only include non-empty arrays. Output valid JSON only."""
 

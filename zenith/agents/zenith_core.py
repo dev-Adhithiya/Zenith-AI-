@@ -101,7 +101,8 @@ class ZenithCore:
             context = await self.context_agent.gather_context(
                 user_id=user_id,
                 session_id=session_id,
-                user_message=message
+                user_message=message,
+                user_profile=user
             )
             
             # PHASE 2: Task Decomposition
@@ -114,12 +115,18 @@ class ZenithCore:
             
             # Execute plan if needed
             execution_results = None
-            if plan.get("requires_execution") and is_valid:
-                execution_results = await self._execute_plan(
-                    plan=plan,
-                    credentials=credentials,
-                    user_id=user_id
-                )
+            if plan.get("requires_execution"):
+                if is_valid:
+                    execution_results = await self._execute_plan(
+                        plan=plan,
+                        credentials=credentials,
+                        user_id=user_id
+                    )
+                else:
+                    execution_results = {
+                        "success": False,
+                        "error": f"Failed to create a valid execution plan: {error}"
+                    }
             
             # PHASE 3: Synthesis
             response_text = await self.synthesizer.synthesize(
@@ -296,13 +303,18 @@ class ZenithCore:
         if plan.get("requires_execution"):
             yield {"type": "status", "content": "Working on it..."}
             
-            is_valid, _ = self.decomposer.validate_plan(plan)
+            is_valid, error = self.decomposer.validate_plan(plan)
             if is_valid:
                 execution_results = await self._execute_plan(
                     plan=plan,
                     credentials=credentials,
                     user_id=user_id
                 )
+            else:
+                execution_results = {
+                    "success": False,
+                    "error": f"Failed to create a valid execution plan: {error}"
+                }
         
         # Phase 3: Stream the response
         yield {"type": "status", "content": "Generating response..."}

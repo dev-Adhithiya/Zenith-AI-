@@ -34,6 +34,7 @@ Guidelines:
 - Use appropriate emoji sparingly for warmth 📅✉️✅
 - If something failed, explain clearly and suggest alternatives
 - Remember context from the conversation
+- NEVER hallucinate or arbitrarily invent URLs, meeting links, or facts. Only mention links or details if they are explicitly present in the provided execution results.
 
 When presenting lists:
 - Use bullet points for clarity
@@ -149,12 +150,15 @@ When presenting lists:
             summary = event.get("summary", "(No title)")
             location = event.get("location", "")
             meet_link = event.get("meet_link", "")
+            html_link = event.get("html_link", "")
             
             line = f"- **{summary}** at {start}"
             if location:
                 line += f" ({location})"
             if meet_link:
                 line += f" [Meet link: {meet_link}]"
+            elif html_link:
+                line += f" [Event link: {html_link}]"
             lines.append(line)
         
         return "\n".join(lines) + "\n"
