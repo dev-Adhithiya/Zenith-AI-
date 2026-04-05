@@ -161,24 +161,66 @@ class ConversationMemory:
         limit: int = 10
     ) -> list[dict]:
         """Get user's recent conversation sessions."""
+        # Query without order_by to avoid needing composite index
+        # Then sort in memory
         sessions = await self.db.query_documents(
             collection=self.collection,
             filters=[("user_id", "==", user_id)],
-            order_by="last_activity",
-            order_direction="DESCENDING",
-            limit=limit
+            limit=100  # Get more to allow for sorting
         )
         
-        return [
-            {
+        # Sort by last_activity in descending order
+        sessions.sort(
+            key=lambda s: s.get("last_activity", s.get("started_at", "")),
+            reverse=True
+        )
+        
+        # Apply limit after sorting
+        sessions = sessions[:limit]
+        
+        result = []
+        for s in sessions:
+            messages = s.get("messages", [])
+            # Get the first user message as the title
+            title = None
+            last_message = None
+            for msg in messages:
+                if msg.get("role") == "user" and not title:
+                    title = msg.get("content", "")[:50]  # First 50 chars
+                    if len(msg.get("content", "")) > 50:
+                        title += "..."
+                last_message = msg.get("content", "")[:50]
+            
+            result.append({
                 "session_id": s.get("session_id"),
+                "title": title or "New conversation",
+                "last_message": last_message,
                 "started_at": s.get("started_at"),
-                "last_activity": s.get("last_activity"),
-                "message_count": len(s.get("messages", []))
-            }
-            for s in sessions
-        ]
+                "updated_at": s.get("last_activity"),
+                "created_at": s.get("started_at"),
+                "message_count": len(messages)
+            })
+        
+        return result
     
+    async def delete_session(
+        self,
+        user_id: str,
+        session_id: str
+    ) -> bool:
+        """
+        Delete a conversation session.
+
+        Args:
+            user_id: User's unique identifier
+            session_id: Conversation session ID
+
+        Returns:
+            True if deleted successfully
+        """
+        doc_id = f"{user_id}_{session_id}"
+        return await self.db.delete_document(self.collection, doc_id)
+
     async def search_conversations(
         self,
         user_id: str,

@@ -7,6 +7,12 @@ from typing import Optional
 import pytz
 import structlog
 
+def _parse_dt(dt):
+    if isinstance(dt, str):
+        from dateutil.parser import isoparse
+        return isoparse(dt)
+    return dt
+
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -54,8 +60,10 @@ class CalendarTools:
         service = self._get_service(credentials)
         
         # Default time range
+        time_min = _parse_dt(time_min)
         if time_min is None:
             time_min = datetime.utcnow()
+        time_max = _parse_dt(time_max)
         if time_max is None:
             time_max = time_min + timedelta(days=7)
         
@@ -140,7 +148,9 @@ class CalendarTools:
             Created event details
         """
         service = self._get_service(credentials)
-        
+        start_time = _parse_dt(start_time)
+        end_time = _parse_dt(end_time)
+
         event_body = {
             "summary": summary,
             "start": {
@@ -262,11 +272,15 @@ class CalendarTools:
             
             # Apply updates
             for key, value in updates.items():
-                if key in ["start", "end"] and isinstance(value, datetime):
-                    event[key] = {
-                        "dateTime": value.isoformat(),
-                        "timeZone": event.get(key, {}).get("timeZone", "UTC")
-                    }
+                if key in ["start", "end"]:
+                    parsed_val = _parse_dt(value)
+                    if isinstance(parsed_val, datetime):
+                        event[key] = {
+                            "dateTime": parsed_val.isoformat(),
+                            "timeZone": event.get(key, {}).get("timeZone", "UTC") 
+                        }
+                    else:
+                        event[key] = value
                 elif key == "attendees" and isinstance(value, list):
                     event["attendees"] = [{"email": email} for email in value]
                 else:
@@ -355,11 +369,16 @@ class CalendarTools:
         Returns:
             Free/busy information
         """
+        time_min = _parse_dt(time_min)
+        time_max = _parse_dt(time_max)
         service = self._get_service(credentials)
-        
+
         if calendar_ids is None:
             calendar_ids = ["primary"]
-        
+
+        time_min = _parse_dt(time_min)
+        time_max = _parse_dt(time_max)
+
         try:
             body = {
                 "timeMin": time_min.isoformat() + "Z",

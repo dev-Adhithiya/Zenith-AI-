@@ -85,11 +85,16 @@ class FirestoreClient:
         self,
         collection: str,
         document_id: str
-    ) -> None:
+    ) -> bool:
         """Delete a document."""
-        doc_ref = self._async_client.collection(collection).document(document_id)
-        await doc_ref.delete()
-        logger.debug("Document deleted", collection=collection, document_id=document_id)
+        try:
+            doc_ref = self._async_client.collection(collection).document(document_id)
+            await doc_ref.delete()
+            logger.debug("Document deleted", collection=collection, document_id=document_id)
+            return True
+        except Exception as e:
+            logger.error("Failed to delete document", collection=collection, document_id=document_id, error=str(e))
+            return False
     
     async def query_documents(
         self,

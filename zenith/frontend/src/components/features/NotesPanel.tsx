@@ -1,12 +1,109 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { GlassPanel } from '../ui/GlassPanel';
 import { GlassButton } from '../ui/GlassButton';
 import { GlassInput, GlassTextarea } from '../ui/GlassInput';
-import { StickyNote, Plus, ChevronRight, Search } from 'lucide-react';
+import { StickyNote, Plus, ChevronRight, Search, X, Tag } from 'lucide-react';
 import { notesAPI, type Note } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+
+interface NoteDetailModalProps {
+  note: Note | null;
+  onClose: () => void;
+}
+
+function NoteDetailModal({ note, onClose }: NoteDetailModalProps) {
+  if (!note) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-lg max-h-[80vh] overflow-hidden"
+        >
+          <GlassPanel variant="strong" className="p-5 flex flex-col max-h-[80vh]">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                  <StickyNote className="w-5 h-5 text-yellow-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Note</h3>
+                  <p className="text-xs text-white/40">
+                    {new Date(note.created_at).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5 text-white/60" />
+              </button>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto">
+              <div>
+                <p className="text-xs text-white/40 mb-1">Title</p>
+                <p className="text-sm text-white/90 font-medium">{note.title}</p>
+              </div>
+              
+              <div>
+                <p className="text-xs text-white/40 mb-1">Content</p>
+                <p className="text-sm text-white/70 leading-relaxed whitespace-pre-wrap">{note.content}</p>
+              </div>
+              
+              {note.tags && note.tags.length > 0 && (
+                <div>
+                  <p className="text-xs text-white/40 mb-2">Tags</p>
+                  <div className="flex flex-wrap gap-2">
+                    {note.tags.map((tag, i) => (
+                      <span
+                        key={i}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-xs text-white/70"
+                      >
+                        <Tag className="w-3 h-3" />
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {note.source && (
+                <div>
+                  <p className="text-xs text-white/40 mb-1">Source</p>
+                  <p className="text-sm text-white/50">{note.source}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <p className="text-xs text-white/30 text-center">
+                Click outside or the X to close
+              </p>
+            </div>
+          </GlassPanel>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 export function NotesPanel() {
   const { isAuthenticated } = useAuth();
@@ -15,6 +112,7 @@ export function NotesPanel() {
   const [showAddNote, setShowAddNote] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [newNote, setNewNote] = useState({ title: '', content: '', tags: '' });
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['notes'],
@@ -157,7 +255,8 @@ export function NotesPanel() {
               {displayNotes.map((note: Note) => (
                 <div
                   key={note.note_id}
-                  className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                  onClick={() => setSelectedNote(note)}
+                  className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <h4 className="text-sm font-medium text-white/90 mb-1">
                     {note.title}
@@ -189,6 +288,14 @@ export function NotesPanel() {
             </div>
           )}
         </motion.div>
+      )}
+
+      {/* Note Detail Modal */}
+      {selectedNote && (
+        <NoteDetailModal 
+          note={selectedNote} 
+          onClose={() => setSelectedNote(null)} 
+        />
       )}
     </GlassPanel>
   );

@@ -233,10 +233,14 @@ body, .dark body {
 }
 
 /* Input focus styles */
-input:focus,
-textarea:focus {
+input:focus {
   outline: none;
   box-shadow: 0 0 0 2px rgba(120, 120, 120, 0.3);
+}
+
+textarea:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Placeholder styling */

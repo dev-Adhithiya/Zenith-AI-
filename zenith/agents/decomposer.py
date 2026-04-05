@@ -21,8 +21,8 @@ PLAN_TEMPLATES = {
     "create_meeting": {
         "name": "Create Meeting",
         "steps": [
-            {"action": "calendar.check_availability", "params": ["time_range"]},
-            {"action": "calendar.create_event", "params": ["summary", "start", "end", "attendees", "conference"]}
+            {"action": "calendar.check_availability", "params": ["time_min", "time_max"]},
+            {"action": "calendar.create_event", "params": ["summary", "start_time", "end_time", "attendees", "conference_data"]}
         ]
     },
     "quick_add_event": {
@@ -226,6 +226,8 @@ class DecomposerAgent:
                 # Validation for critical params
                 action = step["action"]
                 if action == "tasks.add_task" and "title" not in step_params:
+                    return None
+                if action == "calendar.check_availability" and ("time_min" not in step_params or "time_max" not in step_params):
                     return None
                 if action == "gmail.get_thread" and "thread_id" not in step_params:
                     return None

@@ -172,6 +172,9 @@ class TasksTools:
             task_body["notes"] = notes
         
         if due_date:
+            if isinstance(due_date, str):
+                from dateutil.parser import isoparse
+                due_date = isoparse(due_date)
             # Tasks API only supports date, not time
             task_body["due"] = due_date.strftime("%Y-%m-%dT00:00:00.000Z")
         
@@ -329,6 +332,10 @@ class TasksTools:
         Returns:
             Created task/reminder
         """
+        if isinstance(remind_at, str):
+            from dateutil.parser import isoparse
+            remind_at = isoparse(remind_at)
+            
         # Add a note indicating this is a reminder
         reminder_notes = f"⏰ Reminder set for {remind_at.strftime('%Y-%m-%d %H:%M')}"
         if notes:

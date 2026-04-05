@@ -91,7 +91,7 @@ export function InputArea() {
       {/* Main input container - Modern chat style */}
       <div className="relative">
         <div className={`
-          flex items-end gap-3 p-3 rounded-2xl
+          flex items-center gap-3 p-3 rounded-2xl
           bg-white/5 border transition-all duration-300
           ${isListening 
             ? 'border-red-400/50 ring-2 ring-red-400/20' 
@@ -99,7 +99,7 @@ export function InputArea() {
           }
         `}>
           {/* Sparkles icon - Gemini style */}
-          <div className="flex-shrink-0 pb-2">
+          <div className="flex-shrink-0 flex items-center justify-center">
             <motion.div
               animate={isLoading ? { rotate: 360 } : { rotate: 0 }}
               transition={{ duration: 2, repeat: isLoading ? Infinity : 0, ease: 'linear' }}
@@ -121,8 +121,7 @@ export function InputArea() {
               text-white placeholder-white/40
               focus:outline-none
               disabled:opacity-50 disabled:cursor-not-allowed
-              max-h-32 min-h-[28px]
-              text-base leading-7
+              max-h-32 text-base py-1 leading-snug
               scrollbar-thin scrollbar-thumb-white/20
             `}
             rows={1}
@@ -134,7 +133,7 @@ export function InputArea() {
           />
 
           {/* Action buttons */}
-          <div className="flex items-center gap-1 flex-shrink-0 pb-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {/* Voice button */}
             {isSupported && (
               <motion.button

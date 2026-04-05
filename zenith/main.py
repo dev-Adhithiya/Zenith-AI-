@@ -409,6 +409,26 @@ async def search_emails(
         count=len(messages)
     )
 
+@app.get("/gmail/messages/{message_id}", response_model=EmailResponse, tags=["Gmail"])
+async def get_email(
+    message_id: str,
+    format: str = Query(default="full"),
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Get a specific Gmail message."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+
+    gmail = GmailTools()
+    message = await gmail.get_message(
+        credentials=credentials,
+        message_id=message_id,
+        format=format
+    )
+
+    return EmailResponse(**message)
+
 
 @app.get("/gmail/inbox/summary", response_model=InboxSummaryResponse, tags=["Gmail"])
 async def summarize_inbox(
@@ -523,6 +543,44 @@ async def set_reminder(
     return TaskResponse(**task)
 
 
+@app.patch("/tasks/{task_id}/complete", response_model=TaskResponse, tags=["Tasks"])
+async def complete_task(
+    task_id: str,
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Mark a task as completed."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
+    tasks_tool = TasksTools()
+    task = await tasks_tool.complete_task(
+        credentials=credentials,
+        task_id=task_id
+    )
+    
+    return TaskResponse(**task)
+
+
+@app.patch("/tasks/{task_id}/uncomplete", response_model=TaskResponse, tags=["Tasks"])
+async def uncomplete_task(
+    task_id: str,
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Mark a task as not completed."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
+    tasks_tool = TasksTools()
+    task = await tasks_tool.uncomplete_task(
+        credentials=credentials,
+        task_id=task_id
+    )
+    
+    return TaskResponse(**task)
+
+
 # ==================== Notes ====================
 
 @app.get("/notes", response_model=NoteListResponse, tags=["Notes"])
@@ -591,12 +649,20 @@ async def list_sessions(
     memory: ConversationMemory = Depends(get_conversation_memory)
 ):
     """List user's conversation sessions."""
-    sessions = await memory.get_user_sessions(
-        user_id=current_user["user_id"],
-        limit=limit
-    )
-    
-    return {"sessions": sessions, "count": len(sessions)}
+    try:
+        sessions = await memory.get_user_sessions(
+            user_id=current_user["user_id"],
+            limit=limit
+        )
+        return {"sessions": sessions, "count": len(sessions)}
+    except Exception as e:
+        # Handle Firestore index not ready error gracefully
+        error_msg = str(e)
+        if "index" in error_msg.lower():
+            logger.warning(f"Firestore index not ready for sessions: {e}")
+            return {"sessions": [], "count": 0, "error": "Index building - chat history will be available soon"}
+        logger.error(f"Failed to list sessions: {e}")
+        return {"sessions": [], "count": 0, "error": str(e)}
 
 
 @app.post("/sessions", tags=["Sessions"])
@@ -630,6 +696,27 @@ async def get_session_messages(
         "messages": messages,
         "count": len(messages)
     }
+
+@app.delete("/sessions/{session_id}", tags=["Sessions"])
+async def delete_session(
+    session_id: str,
+    current_user: dict = Depends(require_auth),
+    memory: ConversationMemory = Depends(get_conversation_memory)
+):
+    """Delete a specific chat session."""
+    try:
+        success = await memory.delete_session(
+            user_id=current_user["user_id"],
+            session_id=session_id
+        )
+        if not success:
+             raise HTTPException(status_code=404, detail="Session not found")
+        return {"result": "success", "message": "Session deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
 # ==================== User Settings ====================

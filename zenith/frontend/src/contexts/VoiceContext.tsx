@@ -36,28 +36,30 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     recognitionInstance.interimResults = true;
     recognitionInstance.lang = 'en-US';
 
+    // Keep track of finalized text
+    let finalizedText = '';
+    
     recognitionInstance.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
+      let currentFinal = '';
+      let currentInterim = '';
       
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalTranscript += result[0].transcript;
+          currentFinal += result[0].transcript;
         } else {
-          interimTranscript += result[0].transcript;
+          currentInterim += result[0].transcript;
         }
       }
       
-      // Update transcript with final + interim
-      setTranscript(prev => {
-        // If we have a final result, append it
-        if (finalTranscript) {
-          return (prev + ' ' + finalTranscript).trim();
-        }
-        // Otherwise show interim results
-        return prev ? prev + ' ' + interimTranscript : interimTranscript;
-      });
+      // Only append new final text (avoid duplication)
+      if (currentFinal && currentFinal !== finalizedText) {
+        finalizedText = currentFinal;
+      }
+      
+      // Display: all finalized text + current interim
+      const displayText = (finalizedText + ' ' + currentInterim).trim();
+      setTranscript(displayText);
     };
 
     recognitionInstance.onerror = (event: any) => {
