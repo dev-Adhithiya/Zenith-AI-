@@ -125,7 +125,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://zenith-puosxzqw4a-el.a.run.app",
+        "https://zenith-156148005661.asia-south1.run.app",
         "https://dev-Adhithiya.github.io",
         "https://dev-Adhithiya.github.io/Zenith-AI-"
     ],
