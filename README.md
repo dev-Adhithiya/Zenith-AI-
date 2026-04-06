@@ -15,7 +15,7 @@ A powerful, intelligent AI assistant that seamlessly integrates with your Google
 ## ✨ Features
 
 ### 🤖 AI-Powered Conversational Interface
-- **Natural Language Processing** with Google's Gemini (1.5 Pro / 2.0 Flash)
+- **Natural Language Processing** with Google's Gemini (1.5 Pro / 2.5 Flash)
 - **3-Phase Execution Pipeline**: Context gathering → Task decomposition → Response synthesis
 - **Conversational Memory** with context awareness
 - **Intent Classification** for smart action routing
