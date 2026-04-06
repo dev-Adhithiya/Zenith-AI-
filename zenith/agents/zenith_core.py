@@ -3,6 +3,7 @@ Zenith Core - The main orchestrator for the Zenith AI assistant
 Coordinates all agents and executes the 3-phase pipeline
 """
 from typing import Optional, AsyncIterator
+import inspect
 import structlog
 
 from .context_agent import ContextAgent
@@ -29,6 +30,16 @@ class ZenithCore:
     3. Synthesis & Response (SynthesizerAgent)
     """
     
+    WRITE_ACTION_KEYWORDS = ["create", "quick_add", "add", "send", "update", "delete", "complete", "uncomplete", "set"]
+
+    def _has_write_actions(self, plan: dict) -> bool:
+        """Check if the plan contains any write actions."""
+        for step in plan.get("steps", []):
+            action = step.get("action", "")
+            if any(kw in action for kw in self.WRITE_ACTION_KEYWORDS):
+                return True
+        return False
+
     def __init__(
         self,
         vertex_client: Optional[VertexAIClient] = None,
@@ -97,6 +108,75 @@ class ZenithCore:
         )
         
         try:
+            # Check for pending plan
+            recent = await self.memory.get_recent_messages(user_id, session_id, limit=2)
+            pending_plan = None
+            if len(recent) >= 2 and recent[-2].get("role") == "assistant":
+                prev_metadata = recent[-2].get("metadata", {})
+                if prev_metadata and prev_metadata.get("requires_confirmation") and prev_metadata.get("pending_plan"):
+                    pending_plan = prev_metadata.get("pending_plan")
+            
+            if pending_plan:
+                msg_lower = message.strip().lower()
+                if msg_lower in ["approve", "yes", "do it", "send", "send it", "go ahead", "confirm"]:
+                    plan = pending_plan
+                    context = {"intent": {"action": "execute_pending_plan"}}
+                    is_valid, error = self.decomposer.validate_plan(plan)
+                    execution_results = None
+                    if is_valid:
+                        execution_results = await self._execute_plan(
+                            plan=plan,
+                            credentials=credentials,
+                            user_id=user_id
+                        )
+                    else:
+                        execution_results = {
+                            "success": False,
+                            "error": f"Failed to create a valid execution plan: {error}"
+                        }
+                    
+                    response_text = await self.synthesizer.synthesize(
+                        context=context,
+                        execution_results=execution_results
+                    )
+                    suggestions = await self.synthesizer.generate_followup_suggestions(
+                        context=context,
+                        execution_results=execution_results
+                    )
+                    
+                    await self.memory.add_message(
+                        user_id=user_id,
+                        session_id=session_id,
+                        role="assistant",
+                        content=response_text,
+                        metadata={
+                            "plan": plan.get("name"),
+                            "tools_used": [s.get("action") for s in plan.get("steps", [])]
+                        }
+                    )
+                    
+                    return {
+                        "response": response_text,
+                        "suggestions": suggestions,
+                        "intent": context.get("intent", {}),
+                        "execution_success": execution_results.get("success") if execution_results else None
+                    }
+                elif msg_lower == "cancel":
+                    response_text = "Okay, I've cancelled the action."
+                    await self.memory.add_message(
+                        user_id=user_id,
+                        session_id=session_id,
+                        role="assistant",
+                        content=response_text
+                    )
+                    return {
+                        "response": response_text,
+                        "suggestions": ["What else can I help you with?"],
+                        "intent": {"action": "cancel"}
+                    }
+                elif msg_lower == "edit":
+                    pass # Continue to let Decomposer/Context run naturally, applying edits to previous intention
+
             # PHASE 1: Context Gathering
             context = await self.context_agent.gather_context(
                 user_id=user_id,
@@ -115,18 +195,23 @@ class ZenithCore:
             
             # Execute plan if needed
             execution_results = None
+            requires_confirmation = False
             if plan.get("requires_execution"):
-                if is_valid:
-                    execution_results = await self._execute_plan(
-                        plan=plan,
-                        credentials=credentials,
-                        user_id=user_id
-                    )
+                if self._has_write_actions(plan):
+                    requires_confirmation = True
+                    execution_results = {"success": True, "pending_confirmation": True, "pending_steps": plan.get("steps", [])}
                 else:
-                    execution_results = {
-                        "success": False,
-                        "error": f"Failed to create a valid execution plan: {error}"
-                    }
+                    if is_valid:
+                        execution_results = await self._execute_plan(
+                            plan=plan,
+                            credentials=credentials,
+                            user_id=user_id
+                        )
+                    else:
+                        execution_results = {
+                            "success": False,
+                            "error": f"Failed to create a valid execution plan: {error}"
+                        }
             
             # PHASE 3: Synthesis
             response_text = await self.synthesizer.synthesize(
@@ -134,6 +219,11 @@ class ZenithCore:
                 execution_results=execution_results
             )
             
+            if requires_confirmation:
+                # Provide a hardcoded clean response to intercept synthesizer attempts if needed, 
+                # or let it synthesize "I will do X" and add the card.
+                pass
+
             # Generate follow-up suggestions
             suggestions = await self.synthesizer.generate_followup_suggestions(
                 context=context,
@@ -141,22 +231,29 @@ class ZenithCore:
             )
             
             # Save assistant response to conversation history
+            metadata = {
+                "plan": plan.get("name"),
+                "tools_used": [s.get("action") for s in plan.get("steps", [])]
+            }
+            if requires_confirmation:
+                metadata["requires_confirmation"] = True
+                metadata["pending_plan"] = plan
+
             await self.memory.add_message(
                 user_id=user_id,
                 session_id=session_id,
                 role="assistant",
                 content=response_text,
-                metadata={
-                    "plan": plan.get("name"),
-                    "tools_used": [s.get("action") for s in plan.get("steps", [])]
-                }
+                metadata=metadata
             )
             
             return {
                 "response": response_text,
                 "suggestions": suggestions,
                 "intent": context.get("intent", {}),
-                "execution_success": execution_results.get("success") if execution_results else None
+                "execution_success": execution_results.get("success") if execution_results else None,
+                "requires_confirmation": requires_confirmation,
+                "pending_plan": plan if requires_confirmation else None
             }
             
         except Exception as e:
@@ -249,8 +346,12 @@ class ZenithCore:
         
         # Execute the method
         if tool_name == "notes":
-            # Notes tools use user_id instead of credentials
-            return await method(user_id=user_id, **params)
+            # Notes tools always use user_id; some methods can also use credentials.
+            note_params = dict(params)
+            method_params = inspect.signature(method).parameters
+            if "credentials" in method_params and "credentials" not in note_params:
+                note_params["credentials"] = credentials
+            return await method(user_id=user_id, **note_params)
         else:
             # Google API tools use credentials
             return await method(credentials=credentials, **params)

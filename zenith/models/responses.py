@@ -12,6 +12,8 @@ class ChatResponse(BaseModel):
     intent: Optional[dict] = None
     execution_success: Optional[bool] = None
     error: Optional[str] = None
+    requires_confirmation: Optional[bool] = None
+    pending_plan: Optional[dict] = None
 
 
 class EventResponse(BaseModel):
@@ -147,3 +149,12 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
     is_new_user: bool = False
+
+
+class BriefingResponse(BaseModel):
+    """Response model for login briefing."""
+    status: str
+    title: str
+    content: str
+    error: Optional[str] = None
+    metadata: Optional[dict] = None

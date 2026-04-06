@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { VoiceProvider } from './contexts/VoiceContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import { MeshGradient } from './components/background/MeshGradient';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
+import { BriefingPanel } from './components/features/BriefingPanel';
 import { EmailPanel } from './components/features/EmailPanel';
 import { CalendarPanel } from './components/features/CalendarPanel';
 import { TasksPanel } from './components/features/TasksPanel';
@@ -52,6 +54,7 @@ function AppContent() {
                   <PanelRightClose className="w-5 h-5 text-white/60" />
                 </button>
               </div>
+              <BriefingPanel />
               <EmailPanel />
               <CalendarPanel />
               <TasksPanel />
@@ -69,7 +72,9 @@ function App() {
     <AuthProvider>
       <ChatProvider>
         <VoiceProvider>
-          <AppContent />
+          <SettingsProvider>
+            <AppContent />
+          </SettingsProvider>
         </VoiceProvider>
       </ChatProvider>
     </AuthProvider>

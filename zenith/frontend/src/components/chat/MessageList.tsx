@@ -133,7 +133,33 @@ export function MessageList() {
                   {message.content}
                 </ReactMarkdown>
               </div>
-              
+
+              {message.role === 'assistant' && message.metadata && message.metadata.requires_confirmation && index === messages.length - 1 && (
+                <div className="mt-4 p-4 rounded-xl bg-white/10 border border-white/20">
+                  <p className="text-sm font-medium mb-3 text-white/90">Confirmation Required</p>
+                  <div className="flex gap-2 text-sm justify-start">
+                    <button
+                      onClick={() => sendMessage("Approve")}
+                      className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg border border-green-500/30 transition-colors"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => sendMessage("Edit")}
+                      className="px-4 py-2 bg-neutral-500/20 hover:bg-neutral-500/30 text-neutral-300 rounded-lg border border-neutral-500/30 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => sendMessage("Cancel")}
+                      className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg border border-red-500/30 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {message.role === 'assistant' && (
                 <button
                   onClick={() => speak(message.content)}

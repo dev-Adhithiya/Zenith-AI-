@@ -5,6 +5,7 @@ Provides email management capabilities: search, read, send, summarize
 from datetime import datetime, timedelta
 from typing import Optional
 import base64
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import structlog
@@ -161,6 +162,111 @@ class GmailTools:
         except HttpError as e:
             logger.error("Failed to get thread", error=str(e), thread_id=thread_id)
             raise
+
+    async def get_email_details_by_query(
+        self,
+        credentials: dict,
+        query: str,
+        max_results: int = 10,
+        recent_days: int = 30
+    ) -> dict:
+        """
+        Find the best matching email for a natural-language query and return details.
+
+        This is designed for follow-up requests like "tell me more about that email"
+        where users do not know message/thread IDs.
+        """
+        if not query or not query.strip():
+            raise ValueError("A query is required to fetch email details")
+
+        cleaned_query = query.strip()
+        query_terms = self._extract_query_terms(cleaned_query)
+
+        attempted_queries = [
+            cleaned_query,
+            f"in:inbox newer_than:{recent_days}d {cleaned_query}"
+        ]
+
+        candidates: list[dict] = []
+        for candidate_query in attempted_queries:
+            try:
+                candidates = await self.search_messages(
+                    credentials=credentials,
+                    query=candidate_query,
+                    max_results=max_results,
+                    label_ids=["INBOX"]
+                )
+            except Exception:
+                candidates = []
+
+            if candidates:
+                break
+
+        if not candidates:
+            # Fallback to recent inbox and do fuzzy scoring locally.
+            recent_messages = await self.search_messages(
+                credentials=credentials,
+                query=f"in:inbox newer_than:{recent_days}d",
+                max_results=50,
+                label_ids=["INBOX"]
+            )
+
+            if not recent_messages:
+                raise ValueError(f"No inbox messages found for query '{cleaned_query}'")
+
+            scored = []
+            for msg in recent_messages:
+                score = self._score_message_match(msg, query_terms)
+                if score > 0:
+                    scored.append((score, msg))
+
+            if not scored:
+                raise ValueError(f"Unable to find an email matching '{cleaned_query}'")
+
+            scored.sort(key=lambda item: item[0], reverse=True)
+            best_summary = scored[0][1]
+            best_score = scored[0][0]
+        else:
+            scored = [
+                (self._score_message_match(msg, query_terms), msg)
+                for msg in candidates
+            ]
+            scored.sort(key=lambda item: item[0], reverse=True)
+            best_score, best_summary = scored[0]
+
+        message_id = best_summary.get("id")
+        if not message_id:
+            raise ValueError(f"Matched email for '{cleaned_query}' has no message ID")
+
+        full_message = await self.get_message(
+            credentials=credentials,
+            message_id=message_id,
+            format="full"
+        )
+
+        thread_message_count = 1
+        thread_id = full_message.get("thread_id")
+        if thread_id:
+            try:
+                thread = await self.get_thread(
+                    credentials=credentials,
+                    thread_id=thread_id,
+                    format="metadata"
+                )
+                thread_message_count = thread.get("message_count", 1)
+            except Exception:
+                # Keep details flow resilient even if thread metadata fails.
+                pass
+
+        return {
+            "query": cleaned_query,
+            "match_score": best_score,
+            "matched_from": full_message.get("from"),
+            "matched_subject": full_message.get("subject"),
+            "thread_id": thread_id,
+            "thread_message_count": thread_message_count,
+            "message": full_message
+        }
     
     async def summarize_inbox(
         self,
@@ -437,6 +543,42 @@ class GmailTools:
             "is_starred": "STARRED" in label_ids,
             "labels": label_ids
         }
+
+    def _extract_query_terms(self, query: str) -> list[str]:
+        """Extract normalized terms for fuzzy email matching."""
+        lowered = query.lower()
+        lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+        terms = [term for term in lowered.split() if len(term) > 1]
+        stopwords = {
+            "the", "a", "an", "and", "or", "to", "about", "with", "for", "from",
+            "email", "mail", "details", "provide", "tell", "me", "yes", "uh", "please"
+        }
+        return [term for term in terms if term not in stopwords]
+
+    def _score_message_match(self, message: dict, query_terms: list[str]) -> int:
+        """Score how well a message summary matches query terms."""
+        if not query_terms:
+            return 0
+
+        haystack = " ".join([
+            message.get("subject", "") or "",
+            message.get("from", "") or "",
+            message.get("snippet", "") or ""
+        ]).lower()
+
+        score = 0
+        for term in query_terms:
+            if term in haystack:
+                score += 2
+
+            subject = (message.get("subject") or "").lower()
+            sender = (message.get("from") or "").lower()
+            if term in subject:
+                score += 2
+            if term in sender:
+                score += 3
+
+        return score
     
     def _format_full_message(self, message: dict) -> dict:
         """Format a full message with body."""

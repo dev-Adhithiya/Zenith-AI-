@@ -4,7 +4,8 @@ from .requests import (
     CreateEventRequest,
     SendEmailRequest,
     AddTaskRequest,
-    SaveNoteRequest
+    SaveNoteRequest,
+    UpdateNoteRequest
 )
 from .responses import (
     ChatResponse,
@@ -21,6 +22,7 @@ __all__ = [
     "SendEmailRequest",
     "AddTaskRequest",
     "SaveNoteRequest",
+    "UpdateNoteRequest",
     "ChatResponse",
     "EventResponse",
     "EmailResponse",

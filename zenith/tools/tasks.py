@@ -4,6 +4,7 @@ Provides task management capabilities: add, list, update, complete tasks
 """
 from datetime import datetime, timedelta
 from typing import Optional
+import re
 import structlog
 
 from googleapiclient.discovery import build
@@ -26,6 +27,13 @@ class TasksTools:
     def _get_service(self, credentials_dict: dict):
         """Get Tasks API service."""
         return self.oauth.build_service("tasks", "v1", credentials_dict)
+
+    def _normalize_text(self, value: str) -> str:
+        """Normalize text for lenient title matching."""
+        if not value:
+            return ""
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", value.lower())
+        return " ".join(cleaned.split())
     
     async def list_task_lists(self, credentials: dict) -> list[dict]:
         """
@@ -269,6 +277,75 @@ class TasksTools:
             task_id=task_id,
             task_list_id=task_list_id,
             status="completed"
+        )
+
+    async def complete_task_by_title(
+        self,
+        credentials: dict,
+        title: str,
+        task_list_id: str = "@default",
+        allow_partial_match: bool = True
+    ) -> dict:
+        """
+        Mark a task as completed by matching task title.
+
+        This is more reliable for natural-language commands where the user
+        usually provides a title, not an internal task ID.
+        """
+        if not title or not title.strip():
+            raise ValueError("Task title is required to complete a task")
+
+        open_tasks = await self.list_tasks(
+            credentials=credentials,
+            task_list_id=task_list_id,
+            show_completed=False,
+            max_results=200
+        )
+
+        if not open_tasks:
+            raise ValueError("No open tasks found")
+
+        target = self._normalize_text(title)
+
+        exact_matches = [
+            task for task in open_tasks
+            if self._normalize_text(task.get("title", "")) == target
+        ]
+
+        matched_task = exact_matches[0] if exact_matches else None
+
+        if not matched_task and allow_partial_match:
+            partial_matches = []
+            for task in open_tasks:
+                task_title = self._normalize_text(task.get("title", ""))
+                if target and (target in task_title or task_title in target):
+                    partial_matches.append(task)
+
+            if partial_matches:
+                # Prefer the shortest matching title to reduce accidental broad matches.
+                partial_matches.sort(
+                    key=lambda task: len(self._normalize_text(task.get("title", "")))
+                )
+                matched_task = partial_matches[0]
+
+        if not matched_task:
+            sample_titles = [task.get("title", "") for task in open_tasks[:5] if task.get("title")]
+            raise ValueError(
+                f"Could not find an open task matching '{title}'. "
+                f"Open tasks include: {', '.join(sample_titles)}"
+            )
+
+        logger.info(
+            "Matched task for completion",
+            requested_title=title,
+            matched_title=matched_task.get("title"),
+            task_id=matched_task.get("id")
+        )
+
+        return await self.complete_task(
+            credentials=credentials,
+            task_id=matched_task.get("id"),
+            task_list_id=task_list_id
         )
     
     async def uncomplete_task(

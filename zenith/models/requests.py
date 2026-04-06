@@ -70,6 +70,13 @@ class SaveNoteRequest(BaseModel):
     source: Optional[str] = Field(default="manual")
 
 
+class UpdateNoteRequest(BaseModel):
+    """Request model for updating notes."""
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    content: Optional[str] = Field(None, min_length=1, max_length=50000)
+    tags: Optional[list[str]] = Field(None, max_items=20)
+
+
 class SearchNotesRequest(BaseModel):
     """Request model for searching notes."""
     query: str = Field(..., min_length=1, max_length=500)

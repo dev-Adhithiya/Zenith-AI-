@@ -5,6 +5,7 @@ import { GlassButton } from '../ui/GlassButton';
 import { GlassToggle } from '../ui/GlassToggle';
 import { useAuth } from '../../contexts/AuthContext';
 import { useChat } from '../../contexts/ChatContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { chatAPI } from '../../lib/api';
 import { 
   Sparkles, 
@@ -24,7 +25,8 @@ import {
   PanelLeft,
   MessageSquare,
   Clock,
-  Trash2
+  Trash2,
+  Volume2
 } from 'lucide-react';
 
 interface Connection {
@@ -39,11 +41,13 @@ interface SettingsPanelProps {
   onClose: () => void;
   isDarkMode: boolean;
   onThemeChange: (isDark: boolean) => void;
+  speakMode: boolean;
+  onSpeakModeChange: (enabled: boolean) => void;
   connections: Connection[];
   onConnectionToggle: (id: string, enabled: boolean) => void;
 }
 
-function SettingsPanel({ isOpen, onClose, isDarkMode, onThemeChange, connections, onConnectionToggle }: SettingsPanelProps) {
+function SettingsPanel({ isOpen, onClose, isDarkMode, onThemeChange, speakMode, onSpeakModeChange, connections, onConnectionToggle }: SettingsPanelProps) {
   const { isAuthenticated } = useAuth();
 
   return (
@@ -100,6 +104,24 @@ function SettingsPanel({ isOpen, onClose, isDarkMode, onThemeChange, connections
                     <GlassToggle
                       enabled={isDarkMode}
                       onChange={onThemeChange}
+                    />
+                  </div>
+                </div>
+
+                {/* Speak Mode Section */}
+                <div>
+                  <h3 className="text-sm font-medium text-white/70 mb-3">Voice</h3>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                    <div className="flex items-center gap-3">
+                      <Volume2 className="w-5 h-5 text-neutral-400" />
+                      <div>
+                        <span className="text-sm text-white/80">Speak Mode</span>
+                        <p className="text-xs text-white/40">AI reads messages aloud</p>
+                      </div>
+                    </div>
+                    <GlassToggle
+                      enabled={speakMode}
+                      onChange={onSpeakModeChange}
                     />
                   </div>
                 </div>
@@ -167,6 +189,7 @@ function SettingsPanel({ isOpen, onClose, isDarkMode, onThemeChange, connections
 export function Sidebar() {
   const { user, isAuthenticated, logout } = useAuth();
   const { createNewSession, sessionId, loadSession } = useChat();
+  const { speakMode, setSpeakMode } = useSettings();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -478,6 +501,8 @@ export function Sidebar() {
         onClose={() => setShowSettings(false)}
         isDarkMode={isDarkMode}
         onThemeChange={setIsDarkMode}
+        speakMode={speakMode}
+        onSpeakModeChange={setSpeakMode}
         connections={connections}
         onConnectionToggle={handleConnectionToggle}
       />

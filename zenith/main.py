@@ -2,7 +2,7 @@
 Zenith AI - Main FastAPI Application
 Personal Assistant with Google Workspace Integration
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 from contextlib import asynccontextmanager
@@ -38,6 +38,7 @@ from models.requests import (
     AddTaskRequest,
     SetReminderRequest,
     SaveNoteRequest,
+    UpdateNoteRequest,
     SearchNotesRequest,
     UpdateSettingsRequest
 )
@@ -57,8 +58,39 @@ from models.responses import (
     HealthResponse,
     AuthUrlResponse,
     TokenResponse,
-    ErrorResponse
+    ErrorResponse,
+    BriefingResponse
 )
+
+# LOGIN BRIEFING PROMPT
+LOGIN_BRIEFING_PROMPT = """You are Zenith AI, a proactive Chief of Staff. The user has just logged into their workspace.
+Your task is to generate a 'Daily Catch-Up' briefing with a clear, organized structure.
+
+IMPORTANT: Use this exact format with emojis and proper section breaks:
+
+✅ TASKS
+  • [Task 1]
+  • [Task 2]
+  • [etc.]
+
+📅 CALENDAR
+  • [Time]: [Event name]
+  • [Time]: [Event name]
+  • [etc.]
+
+📧 EMAILS
+[Just provide a brief summary of email status. For example: "You have 10 unread emails. Important: 1 job offer from LinkedIn, 2 security alerts from Google." Only mention if anything important/urgent is present, otherwise just state the count]
+
+Guidelines:
+- Use emojis as shown above (✅ for tasks, 📅 for calendar, 📧 for emails)
+- Each section has its own line with emoji and title
+- Task and Calendar items as bullet points under each section
+- Email section: Just a summary, no bullet point listing
+- Keep it clear and scannable
+- NO markdown formatting (no **, __, ##)
+- NO questions, NO follow-up suggestions. Just facts.
+- Keep total under 200 words
+- If any urgent/important items, mention them first"""
 
 # Configure structured logging
 structlog.configure(
@@ -277,7 +309,9 @@ async def chat(
         suggestions=result.get("suggestions", []),
         intent=result.get("intent"),
         execution_success=result.get("execution_success"),
-        error=result.get("error")
+        error=result.get("error"),
+        requires_confirmation=result.get("requires_confirmation"),
+        pending_plan=result.get("pending_plan")
     )
 
 
@@ -311,6 +345,185 @@ async def chat_stream(
         generate(),
         media_type="text/event-stream"
     )
+
+
+# ==================== Agent Briefing ====================
+
+@app.get("/agent/briefing", response_model=BriefingResponse, tags=["Agent"])
+async def get_login_briefing(
+    current_user: dict = Depends(get_current_user),
+    user_store: UserStore = Depends(get_user_store),
+    zenith: ZenithCore = Depends(get_zenith_core),
+    memory: ConversationMemory = Depends(get_conversation_memory)
+):
+    """
+    Daily Executive Summary with AI Processing.
+    
+    Fetches real data and generates AI-powered summary:
+    - Tasks: All pending tasks (not completed)  
+    - Events: Today's calendar events (00:00 - 23:59)
+    - Emails: Unread emails from last 24 hours
+    
+    Returns:
+        BriefingResponse with AI-generated summary
+    """
+    user_id = current_user["user_id"]
+    
+    try:
+        # Get user and credentials from store
+        user = await user_store.get_user_by_id(user_id)
+        credentials = user.get("credentials") if user else None
+        
+        if not credentials:
+            return BriefingResponse(
+                status="error",
+                title="Your Executive Summary",
+                content="Please re-authenticate to see your briefing.",
+                error="no_credentials"
+            )
+        
+        # Get today's date range (00:00 - 23:59)
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=999999)
+        last_24h = datetime.utcnow() - timedelta(hours=24)
+        
+        # FETCH REAL DATA
+        
+        # 1. Fetch ALL PENDING TASKS (not completed)
+        try:
+            pending_tasks = await zenith.tasks.list_tasks(
+                credentials=credentials,
+                show_completed=False,
+                max_results=50
+            )
+        except Exception as e:
+            logger.warning("Tasks fetch failed", error=str(e))
+            pending_tasks = []
+        
+        # 2. Fetch TODAY'S CALENDAR EVENTS (00:00 - 23:59)
+        try:
+            calendar_events = await zenith.calendar.list_events(
+                credentials=credentials,
+                time_min=today_start,
+                time_max=today_end,
+                max_results=50
+            )
+        except Exception as e:
+            logger.warning("Calendar fetch failed", error=str(e))
+            calendar_events = []
+        
+        # 3. Fetch UNREAD EMAILS from last 24 hours
+        try:
+            last_24h_date = last_24h.strftime("%Y/%m/%d")
+            unread_emails = await zenith.gmail.search_messages(
+                credentials=credentials,
+                query=f"is:unread after:{last_24h_date}",
+                max_results=20
+            )
+        except Exception as e:
+            logger.warning("Email fetch failed", error=str(e))
+            unread_emails = []
+        
+        # Build execution results with actual data for synthesis
+        execution_results = {
+            "success": True,
+            "step_results": [
+                {
+                    "action": "tasks.list",
+                    "success": True,
+                    "data": {
+                        "count": len(pending_tasks),
+                        "tasks": pending_tasks
+                    }
+                },
+                {
+                    "action": "calendar.list_events",
+                    "success": True,
+                    "data": {
+                        "count": len(calendar_events),
+                        "events": calendar_events
+                    }
+                },
+                {
+                    "action": "gmail.search_unread",
+                    "success": True,
+                    "data": {
+                        "count": len(unread_emails),
+                        "emails": unread_emails
+                    }
+                }
+            ]
+        }
+        
+        # Build context for synthesis
+        context = {
+            "original_message": "Generate executive briefing summary",
+            "resolved_message": "Generate executive briefing summary with actual fetched data",
+            "chat_history": [],
+            "intent": {"category": "B", "intent": "briefing"}
+        }
+        
+        # Format the data for the prompt
+        tasks_text = "\n".join([f"- {t.get('title', '(No title)')}" for t in pending_tasks[:10]]) if pending_tasks else "No pending tasks"
+        events_text = "\n".join([f"- {e.get('start', '')}: {e.get('summary', '(No title)')}" for e in calendar_events[:10]]) if calendar_events else "No events today"
+        emails_text = "\n".join([f"- {e.get('subject', '(No subject)')} from {e.get('from', 'Unknown')}" for e in unread_emails[:10]]) if unread_emails else "No unread emails"
+        
+        # Create detailed briefing prompt with data
+        detailed_prompt = f"""{LOGIN_BRIEFING_PROMPT}
+
+Here is today's data:
+
+TASKS ({len(pending_tasks)} pending):
+{tasks_text}
+
+CALENDAR EVENTS ({len(calendar_events)} events):
+{events_text}
+
+UNREAD EMAILS ({len(unread_emails)} emails):
+{emails_text}
+
+Generate a brief, natural summary of this information for the user."""
+        
+        # Use synthesizer with custom prompt
+        briefing_content = await zenith.synthesizer.synthesize(
+            context=context,
+            execution_results=execution_results,
+            custom_prompt=detailed_prompt
+        )
+        
+        # Clean up any markdown formatting (**, __, ##, etc.)
+        briefing_content = (briefing_content
+            .replace('**', '')
+            .replace('__', '')
+            .replace('##', '')
+            .replace('- ', '• ')
+        )
+        
+        return BriefingResponse(
+            status="success",
+            title="Your Executive Summary",
+            content=briefing_content,
+            error=None,
+            metadata={
+                "task_count": len(pending_tasks),
+                "event_count": len(calendar_events),
+                "unread_count": len(unread_emails),
+                "last_updated": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except Exception as e:
+        logger.error("Failed to generate briefing", 
+                    user_id=user_id, 
+                    error=str(e))
+        
+        # Graceful degradation
+        return BriefingResponse(
+            status="error",
+            title="Your Executive Summary",
+            content="Welcome back! I'm here to help you with your calendar, emails, and tasks.",
+            error=str(e)
+        )
 
 
 # ==================== Calendar ====================
@@ -587,9 +800,13 @@ async def uncomplete_task(
 async def list_notes(
     limit: int = Query(default=20, ge=1, le=100),
     source: Optional[str] = None,
-    current_user: dict = Depends(require_auth)
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
 ):
     """List user's notes."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
     notes_tool = NotesTools()
     notes = await notes_tool.list_notes(
         user_id=current_user["user_id"],
@@ -606,16 +823,21 @@ async def list_notes(
 @app.post("/notes", response_model=NoteResponse, tags=["Notes"])
 async def save_note(
     request: SaveNoteRequest,
-    current_user: dict = Depends(require_auth)
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
 ):
-    """Save a new note."""
+    """Save a new note and optionally sync to Google Drive."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
     notes_tool = NotesTools()
     note = await notes_tool.save_note(
         user_id=current_user["user_id"],
         title=request.title,
         content=request.content,
         tags=request.tags,
-        source=request.source
+        source=request.source,
+        credentials=credentials
     )
     
     return NoteResponse(**note)
@@ -638,6 +860,95 @@ async def search_notes(
         notes=[NoteResponse(**n) for n in notes],
         count=len(notes)
     )
+
+
+@app.put("/notes/{note_id}", response_model=NoteResponse, tags=["Notes"])
+async def update_note(
+    note_id: str,
+    request: UpdateNoteRequest,
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Update an existing note and sync changes to Google Drive."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
+    notes_tool = NotesTools()
+    note = await notes_tool.update_note(
+        user_id=current_user["user_id"],
+        note_id=note_id,
+        title=request.title,
+        content=request.content,
+        tags=request.tags,
+        credentials=credentials
+    )
+    
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    return NoteResponse(**note)
+
+
+@app.delete("/notes/{note_id}", tags=["Notes"])
+async def delete_note(
+    note_id: str,
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Delete a note from both Firestore and Google Drive."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
+    notes_tool = NotesTools()
+    success = await notes_tool.delete_note(
+        user_id=current_user["user_id"],
+        note_id=note_id,
+        credentials=credentials
+    )
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    return {"message": "Note deleted successfully"}
+
+
+@app.post("/notes/import-from-drive", tags=["Notes"])
+async def import_notes_from_drive(
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store)
+):
+    """Import all notes from Google Drive's Zenith Notes folder."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials")
+    
+    if not credentials:
+        raise HTTPException(status_code=400, detail="Google Drive credentials not available")
+    
+    notes_tool = NotesTools()
+    result = await notes_tool.import_notes_from_drive(
+        user_id=current_user["user_id"],
+        credentials=credentials
+    )
+    
+    return result
+
+
+@app.get("/notes/{note_id}/sync-status", tags=["Notes"])
+async def get_note_sync_status(
+    note_id: str,
+    current_user: dict = Depends(require_auth)
+):
+    """Get Google Drive sync status for a note."""
+    notes_tool = NotesTools()
+    status = await notes_tool.get_sync_status(
+        user_id=current_user["user_id"],
+        note_id=note_id
+    )
+    
+    if not status:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    return status
 
 
 # ==================== Sessions ====================

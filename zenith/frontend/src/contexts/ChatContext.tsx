@@ -105,6 +105,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           suggestions: response.suggestions,
           intent: response.intent,
           execution_success: response.execution_success,
+          requires_confirmation: response.requires_confirmation,
+          pending_plan: response.pending_plan
         },
       };
       setMessages(prev => [...prev, assistantMessage]);

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 
 interface VoiceContextType {
   isListening: boolean;
@@ -20,6 +20,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [recognition, setRecognition] = useState<any>(null);
+  const finalizedTextRef = useRef('');
   const [synthesis] = useState<SpeechSynthesis>(window.speechSynthesis);
 
   // Check browser support
@@ -36,29 +37,25 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     recognitionInstance.interimResults = true;
     recognitionInstance.lang = 'en-US';
 
-    // Keep track of finalized text
-    let finalizedText = '';
-    
     recognitionInstance.onresult = (event: any) => {
       let currentFinal = '';
       let currentInterim = '';
-      
-      for (let i = 0; i < event.results.length; i++) {
+
+      // Process only new chunks to avoid duplicating old transcript segments.
+      for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          currentFinal += result[0].transcript;
+          currentFinal += ` ${result[0].transcript}`;
         } else {
-          currentInterim += result[0].transcript;
+          currentInterim += ` ${result[0].transcript}`;
         }
       }
-      
-      // Only append new final text (avoid duplication)
-      if (currentFinal && currentFinal !== finalizedText) {
-        finalizedText = currentFinal;
+
+      if (currentFinal.trim()) {
+        finalizedTextRef.current = `${finalizedTextRef.current} ${currentFinal}`.trim();
       }
-      
-      // Display: all finalized text + current interim
-      const displayText = (finalizedText + ' ' + currentInterim).trim();
+
+      const displayText = `${finalizedTextRef.current} ${currentInterim}`.trim();
       setTranscript(displayText);
     };
 
@@ -91,9 +88,11 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     if (!recognition || isListening) return;
 
     try {
+      // Reset finalized text per listening session so previous voice input is not carried over.
+      finalizedTextRef.current = '';
+      setTranscript('');
       recognition.start();
       setIsListening(true);
-      setTranscript('');
     } catch (error) {
       console.error('Failed to start listening:', error);
     }
@@ -144,6 +143,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   }, [synthesis]);
 
   const clearTranscript = useCallback(() => {
+    finalizedTextRef.current = '';
     setTranscript('');
   }, []);
 

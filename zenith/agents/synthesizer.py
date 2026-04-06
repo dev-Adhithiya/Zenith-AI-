@@ -44,7 +44,8 @@ When presenting lists:
     async def synthesize(
         self,
         context: dict,
-        execution_results: Optional[dict] = None
+        execution_results: Optional[dict] = None,
+        custom_prompt: Optional[str] = None
     ) -> str:
         """
         Generate a natural language response.
@@ -52,6 +53,7 @@ When presenting lists:
         Args:
             context: Context dictionary from ContextAgent
             execution_results: Results from tool execution (if any)
+            custom_prompt: Optional custom prompt to override default behavior
             
         Returns:
             Natural language response
@@ -61,8 +63,15 @@ When presenting lists:
         chat_history = context.get("chat_history", [])
         intent = context.get("intent", {})
         
+        # Use custom prompt if provided
+        if custom_prompt:
+            prompt = custom_prompt
         # Build prompt based on whether we have execution results
-        if execution_results:
+        elif execution_results:
+            # Check if all results are empty - if so, return "no results" directly without LLM
+            if execution_results.get("success") and self._all_results_empty(execution_results.get("step_results", [])):
+                return "No results found for your query. Please try a different time range or search terms."
+            
             prompt = await self._build_results_prompt(
                 user_message=resolved_message,
                 results=execution_results
@@ -82,6 +91,18 @@ When presenting lists:
         
         return response
     
+    def _all_results_empty(self, step_results: list) -> bool:
+        """Check if all execution results are empty."""
+        for step in step_results:
+            if not step.get("success"):
+                return False  # Errors don't count as empty, they're actual results
+            data = step.get("data")
+            if isinstance(data, list) and len(data) > 0:
+                return False  # Has data
+            if isinstance(data, dict) and data:
+                return False  # Has data
+        return True
+    
     async def _build_results_prompt(
         self,
         user_message: str,
@@ -91,27 +112,38 @@ When presenting lists:
         
         prompt_parts = [f"User asked: {user_message}\n"]
         
-        # Add execution results
-        if results.get("success"):
-            prompt_parts.append("I successfully completed the following actions:\n")
-            
-            for step_result in results.get("step_results", []):
-                action = step_result.get("action", "")
-                data = step_result.get("data", {})
-                
-                prompt_parts.append(f"\n**{action}:**\n")
-                prompt_parts.append(self._format_result_data(action, data))
-        else:
+        if results.get("pending_confirmation"):
+            prompt_parts.append("I have prepared the requested actions but I need the user's confirmation before executing them.")
+            for step in results.get("pending_steps", []):
+                prompt_parts.append(f"- Will execute: {step.get('action')} with params {step.get('params')}")
+            prompt_parts.append("Tell the user what you have drafted/prepared based on the pending parameters, and ask them if they would like to approve or edit.")
+        elif not results.get("success"):
+            # ERROR CASE: Execution failed
             prompt_parts.append(f"There was an error: {results.get('error', 'Unknown error')}\n")
+        else:
+            # SUCCESS CASE: Include the tool execution results
+            prompt_parts.append("Tool execution was successful. Here are the results:\n")
+            for step_result in results.get("step_results", []):
+                action = step_result.get("action", "unknown")
+                if step_result.get("success"):
+                    data = step_result.get("data")
+                    formatted_data = self._format_result_data(action, data)
+                    prompt_parts.append(f"\n{action}:\n{formatted_data}")
+                else:
+                    error = step_result.get("error", "Unknown error")
+                    prompt_parts.append(f"\n{action}: Failed - {error}")
         
-        prompt_parts.append("\nGenerate a natural response to the user based on these results.")
-        prompt_parts.append("Be concise, warm, and offer relevant follow-up actions if appropriate.")
+        prompt_parts.append("\nGenerate a concise, informative response based on these results.")
+        prompt_parts.append("Keep it brief and factual. No questions or follow-up suggestions.")
         
         return "\n".join(prompt_parts)
     
     def _format_result_data(self, action: str, data) -> str:
         """Format result data for the LLM prompt."""
         import json
+
+        if action == "gmail.get_email_details_by_query":
+            return self._format_email_details(data)
         
         if isinstance(data, list):
             if len(data) == 0:
@@ -141,6 +173,41 @@ When presenting lists:
         
         # Fallback to JSON
         return json.dumps(data, indent=2, default=str)[:1000]
+
+    def _format_email_details(self, details: dict) -> str:
+        """Format a resolved email-details payload for clear assistant responses."""
+        if not isinstance(details, dict):
+            return "No email details available.\n"
+
+        message = details.get("message") if isinstance(details.get("message"), dict) else details
+
+        subject = message.get("subject", "(No subject)")
+        sender = message.get("from", "Unknown sender")
+        date = message.get("date", "")
+        snippet = message.get("snippet", "")
+        body_text = (message.get("body_text") or "").strip()
+        thread_count = details.get("thread_message_count")
+
+        lines = [
+            f"Subject: {subject}",
+            f"From: {sender}"
+        ]
+
+        if date:
+            lines.append(f"Date: {date}")
+
+        if thread_count:
+            lines.append(f"Thread messages: {thread_count}")
+
+        if snippet:
+            lines.append(f"Snippet: {snippet}")
+
+        if body_text:
+            excerpt = body_text[:1500]
+            lines.append("Body:")
+            lines.append(excerpt)
+
+        return "\n".join(lines) + "\n"
     
     def _format_events(self, events: list) -> str:
         """Format calendar events."""
@@ -152,7 +219,7 @@ When presenting lists:
             meet_link = event.get("meet_link", "")
             html_link = event.get("html_link", "")
             
-            line = f"- **{summary}** at {start}"
+            line = f"- {summary} at {start}"
             if location:
                 line += f" ({location})"
             if meet_link:
@@ -172,7 +239,7 @@ When presenting lists:
             snippet = email.get("snippet", "")[:100]
             is_unread = "🔵 " if email.get("is_unread") else ""
             
-            lines.append(f"- {is_unread}**{subject}** from {sender}")
+            lines.append(f"- {is_unread}{subject} from {sender}")
             if snippet:
                 lines.append(f"  {snippet}...")
         
@@ -202,7 +269,7 @@ When presenting lists:
             snippet = note.get("content", "")[:100]
             
             tag_str = " ".join([f"#{t}" for t in tags]) if tags else ""
-            lines.append(f"- **{title}** {tag_str}")
+            lines.append(f"- {title} {tag_str}")
             if snippet:
                 lines.append(f"  {snippet}...")
         
