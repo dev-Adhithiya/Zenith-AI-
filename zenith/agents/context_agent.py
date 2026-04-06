@@ -39,7 +39,8 @@ class ContextAgent:
         session_id: str,
         user_message: str,
         include_knowledge_base: bool = True,
-        user_profile: dict = None
+        user_profile: dict = None,
+        images: Optional[list[dict]] = None
     ) -> dict:
         """
         Gather all relevant context for processing a user message.
@@ -50,6 +51,7 @@ class ContextAgent:
             user_message: The user's message
             include_knowledge_base: Whether to query knowledge base
             user_profile: The user profile dictionary
+            images: Optional list of image dicts with 'content' and 'content_type' keys
             
         Returns:
             Context dictionary with resolved message, history, and relevant data
@@ -101,7 +103,8 @@ class ContextAgent:
             "intent": intent,
             "user_id": user_id,
             "session_id": session_id,
-            "user_profile": user_profile
+            "user_profile": user_profile,
+            "images": images or []
         }
         
         logger.info("Context gathered", 

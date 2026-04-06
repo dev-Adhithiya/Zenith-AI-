@@ -2,13 +2,17 @@ import { useState, KeyboardEvent, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChat } from '../../contexts/ChatContext';
 import { useVoice } from '../../contexts/VoiceContext';
-import { Send, Mic, Square, Sparkles } from 'lucide-react';
+import { Send, Mic, Square, Sparkles, Image as ImageIcon, X, Upload } from 'lucide-react';
 
 export function InputArea() {
   const { sendMessage, isLoading } = useChat();
   const { isListening, transcript, toggleListening, isSupported, stopListening, clearTranscript } = useVoice();
   const [input, setInput] = useState('');
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Update input when transcript changes (voice input)
   useEffect(() => {
@@ -22,6 +26,84 @@ export function InputArea() {
     textareaRef.current?.focus();
   }, []);
 
+  const handleImageSelect = (files: FileList | null | File[]) => {
+    // Handle both FileList and File[] types
+    const fileArray = files instanceof FileList ? Array.from(files) : Array.isArray(files) ? files : [];
+    if (!fileArray.length) return;
+
+    const validImages: File[] = [];
+    const newPreviews: string[] = [];
+
+    for (const file of fileArray) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        console.warn(`${file.name} is not an image`);
+        continue;
+      }
+
+      // Validate file size (max 5MB per image)
+      if (file.size > 5 * 1024 * 1024) {
+        console.warn(`${file.name} is too large (max 5MB)`);
+        continue;
+      }
+
+      validImages.push(file);
+      newPreviews.push(URL.createObjectURL(file));
+    }
+
+    setSelectedImages(prev => [...prev, ...validImages]);
+    setImagePreviews(prev => [...prev, ...newPreviews]);
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => {
+      const newPreviews = prev.filter((_, i) => i !== index);
+      // Revoke Object URL to free memory
+      URL.revokeObjectURL(prev[index]);
+      return newPreviews;
+    });
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    handleImageSelect(e.dataTransfer.files);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const pastedFiles: File[] = [];
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          pastedFiles.push(file);
+        }
+      }
+    }
+
+    if (pastedFiles.length > 0) {
+      handleImageSelect(pastedFiles);
+    }
+  };
+
   const handleSend = () => {
     const messageToSend = input.trim();
     if (!messageToSend || isLoading) return;
@@ -31,8 +113,13 @@ export function InputArea() {
       stopListening();
     }
     
-    sendMessage(messageToSend);
+    sendMessage(messageToSend, selectedImages.length > 0 ? selectedImages : undefined);
     setInput('');
+    setSelectedImages([]);
+    setImagePreviews(prev => {
+      prev.forEach(preview => URL.revokeObjectURL(preview));
+      return [];
+    });
     clearTranscript();
     
     // Reset textarea height
@@ -88,16 +175,66 @@ export function InputArea() {
         )}
       </AnimatePresence>
 
+      {/* Image previews */}
+      <AnimatePresence>
+        {imagePreviews.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-3 rounded-xl bg-white/5 border border-white/10 p-3"
+          >
+            <p className="text-xs text-white/50 mb-2 font-medium">
+              {imagePreviews.length} image{imagePreviews.length !== 1 ? 's' : ''} selected
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {imagePreviews.map((preview, index) => (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="relative group"
+                >
+                  <img
+                    src={preview}
+                    alt={`Preview ${index + 1}`}
+                    className="w-full h-20 object-cover rounded-lg border border-white/10"
+                  />
+                  <motion.button
+                    onClick={() => removeImage(index)}
+                    className="absolute top-1 right-1 p-1 rounded-md bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main input container - Modern chat style */}
-      <div className="relative">
-        <div className={`
-          flex items-center gap-3 p-3 rounded-2xl
-          bg-white/5 border transition-all duration-300
-          ${isListening 
-            ? 'border-red-400/50 ring-2 ring-red-400/20' 
-            : 'border-white/10 hover:border-white/20 focus-within:border-neutral-400/50 focus-within:ring-2 focus-within:ring-neutral-400/20'
-          }
-        `}>
+      <div
+        className="relative"
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+      >
+        <div
+          className={`
+            flex items-center gap-3 p-3 rounded-2xl
+            bg-white/5 border transition-all duration-300
+            ${dragActive ? 'border-blue-400/50 ring-2 ring-blue-400/20 bg-blue-500/5' : ''}
+            ${isListening 
+              ? 'border-red-400/50 ring-2 ring-red-400/20' 
+              : dragActive ? '' : 'border-white/10 hover:border-white/20 focus-within:border-neutral-400/50 focus-within:ring-2 focus-within:ring-neutral-400/20'
+            }
+          `}
+        >
           {/* Sparkles icon - Gemini style */}
           <div className="flex-shrink-0 flex items-center justify-center">
             <motion.div
@@ -114,7 +251,8 @@ export function InputArea() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={isListening ? "Speak now..." : "Ask Zenith anything..."}
+            onPaste={handlePaste}
+            placeholder={isListening ? "Speak now..." : "Ask Zenith anything... (paste images or drag & drop)"}
             disabled={isLoading}
             className={`
               flex-1 bg-transparent resize-none
@@ -132,8 +270,34 @@ export function InputArea() {
             }}
           />
 
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => handleImageSelect(e.target.files)}
+            className="hidden"
+          />
+
           {/* Action buttons */}
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Image upload button */}
+            <motion.button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              className={`
+                p-2.5 rounded-xl transition-all duration-200
+                text-white/50 hover:text-white/80 hover:bg-white/10
+                disabled:opacity-50 disabled:cursor-not-allowed
+              `}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              title="Add images (or drag & drop / paste screenshots)"
+            >
+              <ImageIcon className="w-5 h-5" />
+            </motion.button>
+
             {/* Voice button */}
             {isSupported && (
               <motion.button
@@ -186,12 +350,31 @@ export function InputArea() {
             </motion.button>
           </div>
         </div>
+
+        {/* Drag over hint */}
+        <AnimatePresence>
+          {dragActive && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-blue-500/10 rounded-2xl flex items-center justify-center pointer-events-none"
+            >
+              <div className="flex flex-col items-center gap-2 text-blue-300">
+                <Upload className="w-6 h-6" />
+                <p className="text-sm font-medium">Drop images here</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Helper text */}
       <p className="mt-2 text-xs text-white/30 text-center">
         {isListening 
           ? 'Click the stop button to send your message'
+          : imagePreviews.length > 0
+          ? `${imagePreviews.length} image${imagePreviews.length !== 1 ? 's' : ''} • Press Enter to send`
           : 'Press Enter to send • Shift+Enter for new line'
         }
       </p>

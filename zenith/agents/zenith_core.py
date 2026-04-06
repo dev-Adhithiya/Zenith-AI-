@@ -67,7 +67,8 @@ class ZenithCore:
         self,
         user_id: str,
         session_id: str,
-        message: str
+        message: str,
+        images: Optional[list[dict]] = None
     ) -> dict:
         """
         Process a user message through the full pipeline.
@@ -76,6 +77,7 @@ class ZenithCore:
             user_id: User's unique identifier
             session_id: Conversation session ID
             message: The user's message
+            images: Optional list of image dicts with 'content' (bytes) and 'content_type' keys
             
         Returns:
             Response dictionary with text and metadata
@@ -182,7 +184,8 @@ class ZenithCore:
                 user_id=user_id,
                 session_id=session_id,
                 user_message=message,
-                user_profile=user
+                user_profile=user,
+                images=images
             )
             
             # PHASE 2: Task Decomposition

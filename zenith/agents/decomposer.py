@@ -131,8 +131,6 @@ class DecomposerAgent:
         chat_history = context.get("chat_history", [])
         category = intent.get("category", "A")
 
-        # Pull last assistant/user messages to support short voice confirmations like
-        # "yes uh provide me with the details".
         last_assistant_message = ""
         last_user_message = ""
         for msg in reversed(chat_history):
@@ -140,7 +138,7 @@ class DecomposerAgent:
             content = msg.get("content") or ""
             if role == "assistant" and not last_assistant_message:
                 last_assistant_message = content
-            if role == "user" and content.strip().lower() != resolved_message.strip():
+            if role == "user" and content.strip().lower() != resolved_message.strip() and not last_user_message:
                 last_user_message = content
             if last_assistant_message and last_user_message:
                 break
@@ -148,7 +146,7 @@ class DecomposerAgent:
         last_assistant_lower = last_assistant_message.lower()
 
         confirmation_starters = ["yes", "yeah", "yep", "sure", "ok", "okay", "go ahead", "please"]
-        details_markers = ["details", "provide", "tell me", "open", "show"]
+        detail_markers = ["details", "provide", "open", "show", "tell me"]
         email_markers = ["email", "mail", "inbox", "sender", "subject", "hackathon"]
 
         is_confirmation_followup = any(
@@ -163,7 +161,7 @@ class DecomposerAgent:
         )
 
         wants_email_details = (
-            (any(marker in resolved_message for marker in details_markers)
+            (any(marker in resolved_message for marker in detail_markers)
              and any(marker in resolved_message for marker in email_markers))
             or (is_confirmation_followup and was_prompted_for_email_details)
             or ("tell me about" in resolved_message and "hackathon" in resolved_message)
@@ -174,7 +172,6 @@ class DecomposerAgent:
             if quoted_phrases:
                 entities["search_queries"] = [quoted_phrases[0]]
             elif last_user_message:
-                # Fallback to the previous user message if it appears topic-specific.
                 entities["search_queries"] = [last_user_message[:120]]
 
         if wants_email_details:
@@ -249,17 +246,12 @@ class DecomposerAgent:
         # Pass user_profile into plan generation
         user_profile = context.get("user_profile", {})
         
-        # For calendar queries, use LLM plan generation to properly handle date/time extraction
-        # (templates don't have access to current datetime for "tomorrow", "next week", etc.)
-        if "calendar" in tools_needed or intent_name in ["list_events", "check_calendar", "check_meetings", "view_schedule"]:
+        # Try to match to a template first
+        plan = await self._match_template(intent_name, tools_needed, all_entities)
+        
+        if not plan:
+            # Generate custom plan with LLM
             plan = await self._generate_plan(context)
-        else:
-            # Try to match to a template first
-            plan = await self._match_template(intent_name, tools_needed, all_entities)
-            
-            if not plan:
-                # Generate custom plan with LLM
-                plan = await self._generate_plan(context)
         
         logger.info("Decomposed request", 
                    plan_type=plan.get("type"),
@@ -351,6 +343,8 @@ class DecomposerAgent:
                         step_params[param] = entities["meeting_names"][0]
                     elif param == "query" and entities.get("search_queries"):
                         step_params[param] = entities["search_queries"][0]
+                    elif param == "query" and entities.get("email_subjects"):
+                        step_params[param] = entities["email_subjects"][0]
                     elif param == "query" and entities.get("task_descriptions"):
                         step_params[param] = entities["task_descriptions"][0]
                     elif param == "text" and entities.get("task_descriptions"):
@@ -392,9 +386,9 @@ class DecomposerAgent:
                     return None
                 if action == "gmail.get_thread" and "thread_id" not in step_params:
                     return None
-                if action == "gmail.send_email" and ("to" not in step_params or "subject" not in step_params or "body" not in step_params):
-                    return None
                 if action == "gmail.get_email_details_by_query" and "query" not in step_params:
+                    return None
+                if action == "gmail.send_email" and ("to" not in step_params or "subject" not in step_params or "body" not in step_params):
                     return None
                 if action == "calendar.create_event" and ("summary" not in step_params or "start_time" not in step_params or "end_time" not in step_params):
                     return None

@@ -125,6 +125,31 @@ export function MessageList() {
                 }
               `}
             >
+              {/* Images section */}
+              {message.images && message.images.length > 0 && (
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  {message.images.map((image) => (
+                    <motion.div
+                      key={image.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="rounded-lg overflow-hidden border border-white/10"
+                    >
+                      <img
+                        src={image.src}
+                        alt={image.filename || 'Attached image'}
+                        className="w-full h-auto max-h-64 object-cover hover:opacity-75 transition-opacity cursor-pointer"
+                        onClick={() => {
+                          // Open image in new tab on click
+                          const newTab = window.open(image.src, '_blank');
+                          if (newTab) newTab.focus();
+                        }}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
               <div className="message-content">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm, remarkMath]}

@@ -171,10 +171,10 @@ class GmailTools:
         recent_days: int = 30
     ) -> dict:
         """
-        Find the best matching email for a natural-language query and return details.
+        Resolve a natural-language email query and return detailed email content.
 
-        This is designed for follow-up requests like "tell me more about that email"
-        where users do not know message/thread IDs.
+        This supports follow-up prompts like "yes, provide details" where users
+        refer to an email topic rather than a thread_id.
         """
         if not query or not query.strip():
             raise ValueError("A query is required to fetch email details")
@@ -203,7 +203,6 @@ class GmailTools:
                 break
 
         if not candidates:
-            # Fallback to recent inbox and do fuzzy scoring locally.
             recent_messages = await self.search_messages(
                 credentials=credentials,
                 query=f"in:inbox newer_than:{recent_days}d",
@@ -214,25 +213,24 @@ class GmailTools:
             if not recent_messages:
                 raise ValueError(f"No inbox messages found for query '{cleaned_query}'")
 
-            scored = []
+            scored_recent = []
             for msg in recent_messages:
                 score = self._score_message_match(msg, query_terms)
                 if score > 0:
-                    scored.append((score, msg))
+                    scored_recent.append((score, msg))
 
-            if not scored:
+            if not scored_recent:
                 raise ValueError(f"Unable to find an email matching '{cleaned_query}'")
 
-            scored.sort(key=lambda item: item[0], reverse=True)
-            best_summary = scored[0][1]
-            best_score = scored[0][0]
+            scored_recent.sort(key=lambda item: item[0], reverse=True)
+            best_score, best_summary = scored_recent[0]
         else:
-            scored = [
+            scored_candidates = [
                 (self._score_message_match(msg, query_terms), msg)
                 for msg in candidates
             ]
-            scored.sort(key=lambda item: item[0], reverse=True)
-            best_score, best_summary = scored[0]
+            scored_candidates.sort(key=lambda item: item[0], reverse=True)
+            best_score, best_summary = scored_candidates[0]
 
         message_id = best_summary.get("id")
         if not message_id:
@@ -255,14 +253,14 @@ class GmailTools:
                 )
                 thread_message_count = thread.get("message_count", 1)
             except Exception:
-                # Keep details flow resilient even if thread metadata fails.
+                # Thread details are optional; keep primary message details flow resilient.
                 pass
 
         return {
             "query": cleaned_query,
             "match_score": best_score,
-            "matched_from": full_message.get("from"),
             "matched_subject": full_message.get("subject"),
+            "matched_from": full_message.get("from"),
             "thread_id": thread_id,
             "thread_message_count": thread_message_count,
             "message": full_message
@@ -545,34 +543,28 @@ class GmailTools:
         }
 
     def _extract_query_terms(self, query: str) -> list[str]:
-        """Extract normalized terms for fuzzy email matching."""
-        lowered = query.lower()
-        lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
-        terms = [term for term in lowered.split() if len(term) > 1]
+        """Extract normalized search terms from a natural-language query."""
+        lowered = re.sub(r"[^a-z0-9\s]", " ", query.lower())
         stopwords = {
             "the", "a", "an", "and", "or", "to", "about", "with", "for", "from",
-            "email", "mail", "details", "provide", "tell", "me", "yes", "uh", "please"
+            "email", "mail", "details", "detail", "provide", "tell", "me", "yes", "uh", "please"
         }
-        return [term for term in terms if term not in stopwords]
+        return [term for term in lowered.split() if len(term) > 1 and term not in stopwords]
 
     def _score_message_match(self, message: dict, query_terms: list[str]) -> int:
-        """Score how well a message summary matches query terms."""
+        """Score how well a summary matches query terms."""
         if not query_terms:
             return 0
 
-        haystack = " ".join([
-            message.get("subject", "") or "",
-            message.get("from", "") or "",
-            message.get("snippet", "") or ""
-        ]).lower()
+        subject = (message.get("subject") or "").lower()
+        sender = (message.get("from") or "").lower()
+        snippet = (message.get("snippet") or "").lower()
+        haystack = f"{subject} {sender} {snippet}"
 
         score = 0
         for term in query_terms:
             if term in haystack:
                 score += 2
-
-            subject = (message.get("subject") or "").lower()
-            sender = (message.get("from") or "").lower()
             if term in subject:
                 score += 2
             if term in sender:

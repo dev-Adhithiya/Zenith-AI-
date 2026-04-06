@@ -16,6 +16,8 @@ from vertexai.generative_models import (
     HarmCategory,
     HarmBlockThreshold
 )
+import base64
+from io import BytesIO
 
 from config import settings
 
@@ -84,7 +86,8 @@ class VertexAIClient:
         system_instruction: Optional[str] = None,
         chat_history: Optional[list[dict]] = None,
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        images: Optional[list[dict]] = None
     ) -> str:
         """
         Generate a response from the LLM.
@@ -95,6 +98,7 @@ class VertexAIClient:
             chat_history: Previous conversation messages
             temperature: Sampling temperature (0.0 - 1.0)
             max_tokens: Maximum tokens to generate
+            images: List of image dicts with 'content' (bytes) and 'content_type' keys
             
         Returns:
             Generated text response
@@ -127,10 +131,37 @@ class VertexAIClient:
                     parts=[Part.from_text(msg.get("content", ""))]
                 ))
         
-        # Add current prompt
+        # Add current prompt with images if provided
+        parts = [Part.from_text(prompt)]
+        
+        if images:
+            for img in images:
+                try:
+                    content = img.get('content')
+                    content_type = img.get('content_type', 'image/jpeg')
+                    
+                    if isinstance(content, bytes):
+                        # Use from_data for binary image data
+                        parts.append(Part.from_data(
+                            data=content,
+                            mime_type=content_type
+                        ))
+                    elif isinstance(content, str):
+                        # If it's base64 encoded string, decode first
+                        try:
+                            decoded = base64.b64decode(content)
+                            parts.append(Part.from_data(
+                                data=decoded,
+                                mime_type=content_type
+                            ))
+                        except:
+                            logger.warning(f"Failed to decode base64 image")
+                except Exception as e:
+                    logger.warning(f"Failed to process image: {str(e)}")
+        
         contents.append(Content(
             role="user",
-            parts=[Part.from_text(prompt)]
+            parts=parts
         ))
         
         try:

@@ -68,10 +68,6 @@ When presenting lists:
             prompt = custom_prompt
         # Build prompt based on whether we have execution results
         elif execution_results:
-            # Check if all results are empty - if so, return "no results" directly without LLM
-            if execution_results.get("success") and self._all_results_empty(execution_results.get("step_results", [])):
-                return "No results found for your query. Please try a different time range or search terms."
-            
             prompt = await self._build_results_prompt(
                 user_message=resolved_message,
                 results=execution_results
@@ -84,24 +80,13 @@ When presenting lists:
             prompt=prompt,
             system_instruction=self.system_instruction,
             chat_history=chat_history,
-            temperature=0.7
+            temperature=0.7,
+            images=context.get("images")
         )
         
         logger.info("Synthesized response", response_length=len(response))
         
         return response
-    
-    def _all_results_empty(self, step_results: list) -> bool:
-        """Check if all execution results are empty."""
-        for step in step_results:
-            if not step.get("success"):
-                return False  # Errors don't count as empty, they're actual results
-            data = step.get("data")
-            if isinstance(data, list) and len(data) > 0:
-                return False  # Has data
-            if isinstance(data, dict) and data:
-                return False  # Has data
-        return True
     
     async def _build_results_prompt(
         self,
@@ -175,7 +160,7 @@ When presenting lists:
         return json.dumps(data, indent=2, default=str)[:1000]
 
     def _format_email_details(self, details: dict) -> str:
-        """Format a resolved email-details payload for clear assistant responses."""
+        """Format resolved email details for clear assistant output."""
         if not isinstance(details, dict):
             return "No email details available.\n"
 
@@ -203,9 +188,8 @@ When presenting lists:
             lines.append(f"Snippet: {snippet}")
 
         if body_text:
-            excerpt = body_text[:1500]
             lines.append("Body:")
-            lines.append(excerpt)
+            lines.append(body_text[:1500])
 
         return "\n".join(lines) + "\n"
     

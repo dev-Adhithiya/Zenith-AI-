@@ -41,7 +41,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       let currentFinal = '';
       let currentInterim = '';
 
-      // Process only new chunks to avoid duplicating old transcript segments.
+      // Process only new chunks so old transcript doesn't repeat.
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -88,7 +88,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     if (!recognition || isListening) return;
 
     try {
-      // Reset finalized text per listening session so previous voice input is not carried over.
+      // Reset per-session transcript state.
       finalizedTextRef.current = '';
       setTranscript('');
       recognition.start();

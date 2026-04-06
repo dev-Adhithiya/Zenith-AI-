@@ -7,7 +7,7 @@ interface ChatContextType {
   sessionId: string | null;
   isLoading: boolean;
   error: string | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, images?: File[]) => Promise<void>;
   createNewSession: () => void;
   clearMessages: () => void;
   loadSession: (sessionId: string) => Promise<void>;
@@ -73,23 +73,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, images?: File[]) => {
     if (!content.trim() || isLoading) return;
 
     setError(null);
     setIsLoading(true);
 
-    // Add user message
+    // Add user message with images
     const userMessage: ChatMessage = {
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
+      images: images
+        ? images.map((file, index) => ({
+            id: `${Date.now()}-${index}`,
+            src: URL.createObjectURL(file),
+            filename: file.name,
+          }))
+        : undefined,
     };
     setMessages(prev => [...prev, userMessage]);
 
     try {
       // Send to backend
-      const response: ChatResponse = await chatAPI.sendMessage(content, sessionId || undefined);
+      const response: ChatResponse = await chatAPI.sendMessage(content, sessionId || undefined, images);
 
       // Update session ID if new
       if (response.session_id && response.session_id !== sessionId) {

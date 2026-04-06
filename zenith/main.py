@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import uuid4
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -155,6 +155,16 @@ async def health_check():
     )
 
 
+@app.get("/debug/test", tags=["System"])
+async def debug_test():
+    """Simple test endpoint to verify backend is working."""
+    return {
+        "status": "ok",
+        "message": "Backend is working",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
 @app.get("/", tags=["System"])
 async def root():
     """Redirect to frontend - this is the backend API server."""
@@ -274,45 +284,97 @@ async def get_current_user_info(
 
 # ==================== Chat (Main Interface) ====================
 
+# Keep this for backward compatibility with JSON requests
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(
-    request: ChatRequest,
+    message: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    images: list[UploadFile] = File(default=[]),
     current_user: dict = Depends(check_rate_limit),
     zenith: ZenithCore = Depends(get_zenith_core),
     memory: ConversationMemory = Depends(get_conversation_memory)
 ):
     """
     Main chat endpoint - interact with Zenith AI.
+    Supports both FormData with optional file uploads.
     
     Send natural language messages and Zenith will:
     - Understand your intent
     - Execute appropriate actions (calendar, email, tasks, notes)
     - Respond in natural language
+    - Process attached images if provided
     """
-    user_id = current_user["user_id"]
-    
-    # Get or create session
-    session_id = request.session_id
-    if not session_id:
-        session_id = await memory.create_session(user_id)
-    
-    # Process message through Zenith
-    result = await zenith.process_message(
-        user_id=user_id,
-        session_id=session_id,
-        message=request.message
-    )
-    
-    return ChatResponse(
-        response=result.get("response", ""),
-        session_id=session_id,
-        suggestions=result.get("suggestions", []),
-        intent=result.get("intent"),
-        execution_success=result.get("execution_success"),
-        error=result.get("error"),
-        requires_confirmation=result.get("requires_confirmation"),
-        pending_plan=result.get("pending_plan")
-    )
+    try:
+        user_id = current_user["user_id"]
+        
+        if not message or not message.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message is required"
+            )
+        
+        # Get or create session
+        if not session_id:
+            session_id = await memory.create_session(user_id)
+        
+        # Process images if provided
+        image_data = []
+        if images:
+            for image_file in images:
+                try:
+                    # Validate file type
+                    if not image_file.content_type.startswith('image/'):
+                        logger.warning(f"Non-image file rejected: {image_file.filename}")
+                        continue
+                    
+                    # Read file content
+                    content = await image_file.read()
+                    
+                    # Validate size (max 5MB)
+                    if len(content) > 5 * 1024 * 1024:
+                        logger.warning(f"Image too large: {image_file.filename}")
+                        continue
+                    
+                    image_data.append({
+                        'filename': image_file.filename,
+                        'content_type': image_file.content_type,
+                        'content': content
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to process image: {image_file.filename}", error=str(e))
+                    continue
+        
+        # Build context message with image count
+        context_message = message
+        if image_data:
+            context_message = f"[User attached {len(image_data)} image(s)]\n{message}"
+        
+        # Process message through Zenith
+        result = await zenith.process_message(
+            user_id=user_id,
+            session_id=session_id,
+            message=context_message,
+            images=image_data
+        )
+        
+        return ChatResponse(
+            response=result.get("response", ""),
+            session_id=session_id,
+            suggestions=result.get("suggestions", []),
+            intent=result.get("intent"),
+            execution_success=result.get("execution_success"),
+            error=result.get("error"),
+            requires_confirmation=result.get("requires_confirmation"),
+            pending_plan=result.get("pending_plan")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Chat endpoint error", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing request: {str(e)}"
+        )
 
 
 @app.post("/chat/stream", tags=["Chat"])

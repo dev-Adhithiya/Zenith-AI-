@@ -197,6 +197,7 @@ export function Sidebar() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([
     { id: 'gmail', name: 'Gmail', icon: <Mail className="w-4 h-4" />, enabled: true },
     { id: 'calendar', name: 'Calendar', icon: <Calendar className="w-4 h-4" />, enabled: true },
@@ -349,10 +350,16 @@ export function Sidebar() {
           {/* User info */}
           {isAuthenticated && user && (
             <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-              {user.picture ? (
-                <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full" />
+              {user.picture && !profileImageFailed ? (
+                <img 
+                  src={user.picture} 
+                  alt={user.name} 
+                  className="w-10 h-10 rounded-full object-cover"
+                  crossOrigin="anonymous"
+                  onError={() => setProfileImageFailed(true)}
+                />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-neutral-500/30 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full bg-neutral-500/30 flex items-center justify-center flex-shrink-0">
                   <User className="w-5 h-5 text-neutral-400" />
                 </div>
               )}
