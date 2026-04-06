@@ -95,7 +95,7 @@ GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 
 # Vertex AI (CRITICAL - Must match enabled models)
-VERTEX_AI_MODEL=gemini-1.5-pro
+VERTEX_AI_MODEL=gemini-2.5-flash
 VERTEX_AI_LOCATION=us-central1
 
 # JWT Secret (generate with: openssl rand -hex 32)
@@ -185,15 +185,15 @@ The system supports multiple Gemini models via Vertex AI:
 
 ```env
 # In .env file
-VERTEX_AI_MODEL=gemini-1.5-pro          # Recommended (most stable)
-# VERTEX_AI_MODEL=gemini-2.0-flash      # Alternative (faster, newer)
+VERTEX_AI_MODEL=gemini-2.5-flash          # Recommended (most stable)
+# VERTEX_AI_MODEL=gemini-2.5-flash      # Alternative (faster, newer)
 
 VERTEX_AI_LOCATION=us-central1          # Recommended (best availability)
 ```
 
 **Supported Models:**
-- `gemini-1.5-pro` - Most stable, production-ready
-- `gemini-2.0-flash` - Newer, faster, experimental
+- `gemini-2.5-flash` - Most stable, production-ready
+- `gemini-2.5-flash` - Newer, faster, experimental
 - `gemini-1.5-flash` - Lightweight, fast responses
 
 **Important:** Model must be available in your selected region and approved for quota.
@@ -255,7 +255,7 @@ VERTEX_AI_LOCATION=us-central1          # Recommended (best availability)
 3. Enable "Cloud Resource Manager API"
 4. Go to IAM & Admin → Quotas → Request quota for `generative_ai`
 5. Verify billing is enabled
-6. Check `.env` has correct model: `gemini-1.5-pro`
+6. Check `.env` has correct model: `gemini-2.5-flash`
 7. Check location: `us-central1`
 8. Restart backend server
 
@@ -292,8 +292,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🙏 Acknowledgments
-
+##  Tech Stack 
 - **Google Cloud Platform** - Vertex AI, Firestore, OAuth
 - **FastAPI** - High-performance Python web framework
 - **Gemini AI Models** - Advanced language understanding (1.5 Pro / 2.0 Flash)
