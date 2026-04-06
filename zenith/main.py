@@ -122,7 +122,13 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "https://zenith-puosxzqw4a-el.a.run.app",
+        "https://dev-Adhithiya.github.io",
+        "https://dev-Adhithiya.github.io/Zenith-AI-"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
