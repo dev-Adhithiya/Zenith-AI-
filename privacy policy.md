@@ -86,6 +86,6 @@ We may update this Privacy Policy from time to time. We will post the updated ve
 For privacy questions or requests, contact:
 
 - Product: Zenith AI
-- Email: support@example.com
+- Email: askadhithiya@gmail.com
 
 If you are using this policy in production, replace the contact details above with your official support channel.
