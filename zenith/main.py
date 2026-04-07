@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -173,8 +174,13 @@ async def debug_test():
 
 @app.get("/", tags=["System"])
 async def root():
-    """Redirect to frontend - this is the backend API server."""
-    return FileResponse("static/redirect.html")
+    """Serve the frontend application."""
+    static_dir = Path("static")
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file, media_type="text/html")
+    # Fallback if index.html doesn't exist during development
+    return {"message": "Zenith AI - Backend API Server (Frontend: build frontend or visit http://localhost:3000)"}
 
 
 # ==================== Authentication ====================

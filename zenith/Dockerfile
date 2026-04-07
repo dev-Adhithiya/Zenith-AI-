@@ -16,6 +16,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Build frontend and move to static directory
+WORKDIR /app/frontend
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+    && npm install \
+    && npm run build \
+    && mkdir -p /app/static \
+    && cp -r dist/* /app/static/ \
+    && apt-get purge -y nodejs npm \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /app/frontend/node_modules
+WORKDIR /app
+
 # Create non-root user for security
 RUN useradd -m -u 1000 zenith && chown -R zenith:zenith /app
 USER zenith
