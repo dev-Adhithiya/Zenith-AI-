@@ -8,7 +8,7 @@ from uuid import uuid4
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Form, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -196,6 +196,7 @@ async def login(
 async def auth_callback(
     code: str,
     state: Optional[str] = None,
+    request: Request,
     oauth: GoogleOAuthManager = Depends(get_oauth_manager),
     user_store: UserStore = Depends(get_user_store)
 ):
@@ -242,23 +243,47 @@ async def auth_callback(
             "settings": user.get("settings", {}),
         }
         
-        # Redirect to frontend with auth data in URL fragment (not visible to server)
-        # Using fragment (#) keeps tokens out of server logs
+        # Redirect to frontend - auto-detect origin
+        # Get the origin from the request headers first (most reliable)
+        origin = request.headers.get("origin")
+        
+        if not origin:
+            # Fallback: construct from request URL
+            origin = f"{request.url.scheme}://{request.url.netloc}"
+        
+        # For localhost without origin header, use port 3000
+        if "localhost" in origin or "127.0.0.1" in origin:
+            frontend_url = "http://localhost:3000"
+        else:
+            # Use the origin as-is (Cloud Run URL)
+            frontend_url = origin
+        
         auth_data = urllib.parse.urlencode({
             "access_token": access_token,
             "user": json.dumps(user_data),
             "is_new_user": str(is_new).lower()
         })
         
-        # Redirect to frontend (port 3000 in development)
-        frontend_url = "http://localhost:3000"
+        logger.info(f"Auth callback redirecting to: {frontend_url}")
         return RedirectResponse(url=f"{frontend_url}/?auth_success=true#{auth_data}")
         
     except Exception as e:
         error_msg = str(e)
         logger.error("Authentication failed", error=error_msg)
-        # Redirect to frontend with error
-        frontend_url = "http://localhost:3000"
+        
+        # Redirect to frontend - auto-detect origin
+        origin = request.headers.get("origin")
+        
+        if not origin:
+            # Fallback: construct from request URL
+            origin = f"{request.url.scheme}://{request.url.netloc}"
+        
+        # For localhost without origin header, use port 3000
+        if "localhost" in origin or "127.0.0.1" in origin:
+            frontend_url = "http://localhost:3000"
+        else:
+            frontend_url = origin
+        
         encoded_error = urllib.parse.quote(error_msg)
         return RedirectResponse(url=f"{frontend_url}/?auth_error={encoded_error}")
 
@@ -1115,26 +1140,28 @@ async def update_settings(
 
 # ==================== Static Files & SPA Routing ====================
 
-# Mount static files for serving assets
+# Mount static files for serving assets ONLY
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
-@app.get("/{full_path:path}", tags=["System"])
-async def serve_spa(full_path: str):
-    """Serve index.html for all non-API routes (SPA routing)."""
-    # Don't catch API routes
-    api_prefixes = ("auth/", "chat/", "calendar/", "gmail/", "tasks/", "notes/", 
-                   "sessions/", "debug/", "agent/", "health")
+# Catch-all route for SPA - MUST be last
+@app.api_route("/{full_path:path}", methods=["GET"], tags=["System"])
+async def fallback_spa_route(full_path: str):
+    """Fallback to index.html for SPA routing on unknown GET requests."""
     
-    if any(full_path.startswith(prefix) for prefix in api_prefixes):
-        raise HTTPException(status_code=404, detail="Not found")
+    # List of API prefixes that should return 404, not redirect to SPA
+    API_ROUTES = {"auth", "chat", "calendar", "gmail", "tasks", "notes", "sessions", "debug", "agent", "health", "api"}
     
-    static_dir = Path("static")
-    index_file = static_dir / "index.html"
+    # Check if this looks like an API route
+    first_segment = full_path.split('/')[0] if full_path else ""
+    if first_segment in API_ROUTES:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
     
+    # Otherwise, serve index.html for SPA routing
+    index_file = Path("static") / "index.html"
     if index_file.exists():
         return FileResponse(index_file, media_type="text/html")
     
-    raise HTTPException(status_code=404, detail="Frontend not built")
+    raise HTTPException(status_code=404, detail="Frontend index.html not found")
 
 
 # ==================== Error Handlers ====================
