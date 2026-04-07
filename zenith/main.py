@@ -135,8 +135,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# API routes are defined above - no mount needed yet
 
 
 # Dependency instances
@@ -171,16 +171,6 @@ async def debug_test():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-
-@app.get("/", tags=["System"])
-async def root():
-    """Serve the frontend application."""
-    static_dir = Path("static")
-    index_file = static_dir / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file, media_type="text/html")
-    # Fallback if index.html doesn't exist during development
-    return {"message": "Zenith AI - Backend API Server (Frontend: build frontend or visit http://localhost:3000)"}
 
 
 # ==================== Authentication ====================
@@ -1121,6 +1111,30 @@ async def update_settings(
     )
     
     return {"settings": settings}
+
+
+# ==================== Static Files & SPA Routing ====================
+
+# Mount static files for serving assets
+app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+
+@app.get("/{full_path:path}", tags=["System"])
+async def serve_spa(full_path: str):
+    """Serve index.html for all non-API routes (SPA routing)."""
+    # Don't catch API routes
+    api_prefixes = ("auth/", "chat/", "calendar/", "gmail/", "tasks/", "notes/", 
+                   "sessions/", "debug/", "agent/", "health")
+    
+    if any(full_path.startswith(prefix) for prefix in api_prefixes):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    static_dir = Path("static")
+    index_file = static_dir / "index.html"
+    
+    if index_file.exists():
+        return FileResponse(index_file, media_type="text/html")
+    
+    raise HTTPException(status_code=404, detail="Frontend not built")
 
 
 # ==================== Error Handlers ====================

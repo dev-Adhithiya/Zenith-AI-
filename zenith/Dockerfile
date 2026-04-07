@@ -1,7 +1,16 @@
 # Zenith AI - Cloud Run Dockerfile
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /frontend
+COPY zenith/frontend/package*.json ./
+RUN npm install --legacy-peer-deps
+
+COPY zenith/frontend/ .
+RUN npm run build
+
+# Python runtime
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
@@ -9,24 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy backend requirements
+COPY zenith/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy backend code
+COPY zenith/ .
 
-# Build frontend and move to static directory
-WORKDIR /app/frontend
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
-    && npm install \
-    && npm run build \
-    && mkdir -p /app/static \
-    && cp -r dist/* /app/static/ \
-    && apt-get purge -y nodejs npm \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /app/frontend/node_modules
-WORKDIR /app
+# Copy built frontend assets
+COPY --from=frontend-builder /frontend/dist ./static
 
 # Create non-root user for security
 RUN useradd -m -u 1000 zenith && chown -R zenith:zenith /app
