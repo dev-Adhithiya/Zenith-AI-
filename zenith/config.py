@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
     
+    # CORS Configuration
+    allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:8000",
+        env="ALLOWED_ORIGINS"
+    )
+    
     # Application Settings
     app_name: str = "Zenith AI"
     app_version: str = "1.0.0"

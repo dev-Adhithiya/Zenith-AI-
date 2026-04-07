@@ -1,7 +1,20 @@
-# Zenith AI - Cloud Run Deployment with Actual Credentials
+# Zenith AI - Cloud Run Deployment Script
+# Requirements: gcloud CLI configured, Docker installed
+# Environment variables should be set before running this script
 
-$PROJECT_ID = "multi-agentproductivity"
-$REGION = "asia-south1"
+# Get project ID from environment or prompt for it
+$PROJECT_ID = $env:GCP_PROJECT_ID
+if (-not $PROJECT_ID) {
+    $PROJECT_ID = Read-Host "Enter GCP Project ID"
+}
+
+$REGION = $env:GCP_REGION
+if (-not $REGION) {
+    $REGION = "us-central1"
+}
+
+Write-Host "Using Project ID: $PROJECT_ID" -ForegroundColor Cyan
+Write-Host "Using Region: $REGION" -ForegroundColor Cyan
 
 # Step 1: Build Docker image
 Write-Host "Building Docker image..." -ForegroundColor Green
@@ -13,7 +26,17 @@ docker push gcr.io/$PROJECT_ID/zenith-ai
 
 # Step 3: Deploy to Cloud Run
 Write-Host "Deploying to Cloud Run..." -ForegroundColor Green
-# Configure environment variables in Secret Manager or .env before running
+# IMPORTANT: Configure these environment variables securely:
+#   - GOOGLE_CLIENT_ID
+#   - GOOGLE_CLIENT_SECRET  
+#   - JWT_SECRET_KEY
+#   - VERTEX_AI_MODEL
+#   - VERTEX_AI_LOCATION
+#
+# Option 1: Use Google Cloud Secret Manager
+# Option 2: Set --set-env-vars with secure values
+# Option 3: Configure via GCP Console after deployment
+
 gcloud run deploy zenith-ai `
   --image=gcr.io/$PROJECT_ID/zenith-ai `
   --platform managed `
@@ -25,7 +48,8 @@ gcloud run deploy zenith-ai `
   --min-instances 0 `
   --max-instances 10 `
   --timeout 300 `
-  --set-env-vars GCP_PROJECT_ID=$PROJECT_ID
+  --set-env-vars GCP_PROJECT_ID=$PROJECT_ID,ALLOWED_ORIGINS=https://dev-adhithiya.github.io
 
 Write-Host "Deployment complete!" -ForegroundColor Cyan
-Write-Host "Your app is available at the URL shown above" -ForegroundColor Cyan
+Write-Host "Your app is available at: https://zenith-ai-$PROJECT_ID.$REGION.run.app" -ForegroundColor Cyan
+Write-Host "IMPORTANT: Configure GOOGLE_CLIENT_* and JWT_SECRET_KEY via Secret Manager!" -ForegroundColor Yellow

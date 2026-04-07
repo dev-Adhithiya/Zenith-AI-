@@ -35,6 +35,15 @@ env/
 .env.*.local
 *.env
 
+# DO NOT commit sensitive files
+.env.production
+.env.staging
+credentials/
+.secrets/
+secrets/
+config/secrets/
+service-account-*.json
+
 # IDE / Editors
 .vscode/
 .idea/

@@ -27,30 +27,32 @@ Your Zenith AI application is now fully operational on Cloud Run with both front
 
 **Live Application:**
 ```
-https://zenith-ai-156148005661.asia-south1.run.app
+https://zenith-ai-{GCP_PROJECT_ID}.{GCP_REGION}.run.app
 ```
+
+Replace `{GCP_PROJECT_ID}` with your actual GCP project ID and `{GCP_REGION}` with your deployment region (e.g., `asia-south1`).
 
 ---
 
 ## ✅ **Test These Endpoints**
 
-All should now return success:
+All should now return success. Replace the URL with your actual Cloud Run deployment URL:
 
 ```powershell
 # Health check
-curl https://zenith-ai-156148005661.asia-south1.run.app/health
+curl https://zenith-ai-{GCP_PROJECT_ID}.{GCP_REGION}.run.app/health
 # Response: {"status":"healthy","version":"1.0.0","timestamp":"..."}
 
 # OAuth login URL
-curl https://zenith-ai-156148005661.asia-south1.run.app/auth/login
+curl https://zenith-ai-{GCP_PROJECT_ID}.{GCP_REGION}.run.app/auth/login
 # Response: {"authorization_url":"...", "state":"..."}
 
 # Frontend
-curl https://zenith-ai-156148005661.asia-south1.run.app/
+curl https://zenith-ai-{GCP_PROJECT_ID}.{GCP_REGION}.run.app/
 # Response: HTML with Zenith AI interface
 
 # Frontend assets
-curl -I https://zenith-ai-156148005661.asia-south1.run.app/assets/index-Bhw-gMFn.js
+curl -I https://zenith-ai-{GCP_PROJECT_ID}.{GCP_REGION}.run.app/assets/index-*.js
 # Response: HTTP/1.1 200 OK
 ```
 

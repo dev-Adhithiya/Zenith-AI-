@@ -120,16 +120,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "https://zenith-156148005661.asia-south1.run.app",
+# CORS middleware - Origins loaded from environment for security
+cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",")]
+# Add default GitHub Pages URL
+if "https://dev-Adhithiya.github.io" not in cors_origins:
+    cors_origins.extend([
         "https://dev-Adhithiya.github.io",
         "https://dev-Adhithiya.github.io/Zenith-AI-"
-    ],
+    ])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
