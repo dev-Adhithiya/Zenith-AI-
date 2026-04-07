@@ -85,6 +85,6 @@ We may modify these Terms from time to time. Updated Terms become effective when
 For questions about these Terms, contact:
 
 - Product: Zenith AI
-- Email: support@example.com
+- Email: askadhithiya@gmail.com
 
 If you are using these terms in production, replace the contact details above with your official legal/support channel.
