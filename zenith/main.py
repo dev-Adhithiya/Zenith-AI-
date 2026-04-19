@@ -7,8 +7,19 @@ from typing import Optional
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    status,
+    Query,
+    Form,
+    File,
+    UploadFile,
+    Request,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,10 +28,10 @@ import structlog
 from config import settings
 from auth.google_oauth import GoogleOAuthManager, get_oauth_manager
 from auth.dependencies import (
-    get_current_user, 
-    require_auth, 
+    get_current_user,
+    require_auth,
     create_access_token,
-    check_rate_limit
+    check_rate_limit,
 )
 from memory.user_store import UserStore
 from memory.conversation import ConversationMemory
@@ -41,7 +52,7 @@ from models.requests import (
     SaveNoteRequest,
     UpdateNoteRequest,
     SearchNotesRequest,
-    UpdateSettingsRequest
+    UpdateSettingsRequest,
 )
 from models.responses import (
     ChatResponse,
@@ -60,7 +71,7 @@ from models.responses import (
     AuthUrlResponse,
     TokenResponse,
     ErrorResponse,
-    BriefingResponse
+    BriefingResponse,
 )
 
 # LOGIN BRIEFING PROMPT
@@ -101,6 +112,53 @@ structlog.configure(
     ]
 )
 logger = structlog.get_logger()
+
+
+def _load_frontend_redirect_urls() -> list[str]:
+    """Load configured frontend redirect URLs with safe defaults."""
+    urls = [url.strip().rstrip("/") for url in settings.frontend_redirect_urls.split(",") if url.strip()]
+    return urls or ["http://localhost:3000"]
+
+
+def _origin_for(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
+def _build_origin_to_url_map(urls: list[str]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for candidate in urls:
+        origin = _origin_for(candidate)
+        if not origin:
+            continue
+
+        existing = mapping.get(origin)
+        # Prefer URLs with non-root path for hosts like GitHub Pages subpaths.
+        if not existing or len(urlparse(candidate).path) > len(urlparse(existing).path):
+            mapping[origin] = candidate
+    return mapping
+
+
+FRONTEND_REDIRECT_URLS = _load_frontend_redirect_urls()
+FRONTEND_ORIGIN_TO_URL = _build_origin_to_url_map(FRONTEND_REDIRECT_URLS)
+
+
+def resolve_frontend_redirect_url(request: Request) -> str:
+    """Resolve redirect URL from strict frontend allowlist."""
+    origin_header = (request.headers.get("origin") or "").strip().rstrip("/").lower()
+    if origin_header and origin_header in FRONTEND_ORIGIN_TO_URL:
+        return FRONTEND_ORIGIN_TO_URL[origin_header]
+
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").strip().lower()
+    forwarded_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").strip().lower()
+    if forwarded_host:
+        request_origin = f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+        if request_origin in FRONTEND_ORIGIN_TO_URL:
+            return FRONTEND_ORIGIN_TO_URL[request_origin]
+
+    return FRONTEND_REDIRECT_URLS[0]
 
 
 # Lifespan context manager
@@ -145,8 +203,10 @@ app.add_middleware(
 def get_user_store() -> UserStore:
     return UserStore()
 
+
 def get_conversation_memory() -> ConversationMemory:
     return ConversationMemory()
+
 
 def get_zenith_core() -> ZenithCore:
     return ZenithCore()
@@ -186,7 +246,7 @@ async def login(
     Redirect the user to this URL to begin authentication.
     """
     state = str(uuid4())
-    authorization_url, state = oauth.create_authorization_url(state=state)
+    authorization_url, state = await oauth.create_authorization_url(state=state)
     
     return AuthUrlResponse(
         authorization_url=authorization_url,
@@ -197,8 +257,8 @@ async def login(
 @app.get("/auth/callback", tags=["Authentication"])
 async def auth_callback(
     code: str,
-    state: Optional[str] = None,
     request: Request,
+    state: Optional[str] = None,
     oauth: GoogleOAuthManager = Depends(get_oauth_manager),
     user_store: UserStore = Depends(get_user_store)
 ):
@@ -207,8 +267,8 @@ async def auth_callback(
     Exchange authorization code for tokens and redirect to frontend.
     """
     from fastapi.responses import RedirectResponse
-    import urllib.parse
     import json
+    import urllib.parse
     
     try:
         # Exchange code for tokens (pass state for PKCE)
@@ -245,20 +305,8 @@ async def auth_callback(
             "settings": user.get("settings", {}),
         }
         
-        # Redirect to frontend - auto-detect origin
-        # Get the origin from the request headers first (most reliable)
-        origin = request.headers.get("origin")
-        
-        if not origin:
-            # Fallback: construct from request URL
-            origin = f"{request.url.scheme}://{request.url.netloc}"
-        
-        # For localhost without origin header, use port 3000
-        if "localhost" in origin or "127.0.0.1" in origin:
-            frontend_url = "http://localhost:3000"
-        else:
-            # Use the origin as-is (Cloud Run URL)
-            frontend_url = origin
+        # Redirect only to configured frontend targets (prevents open redirect/token leakage).
+        frontend_url = resolve_frontend_redirect_url(request)
         
         auth_data = urllib.parse.urlencode({
             "access_token": access_token,
@@ -273,18 +321,8 @@ async def auth_callback(
         error_msg = str(e)
         logger.error("Authentication failed", error=error_msg)
         
-        # Redirect to frontend - auto-detect origin
-        origin = request.headers.get("origin")
-        
-        if not origin:
-            # Fallback: construct from request URL
-            origin = f"{request.url.scheme}://{request.url.netloc}"
-        
-        # For localhost without origin header, use port 3000
-        if "localhost" in origin or "127.0.0.1" in origin:
-            frontend_url = "http://localhost:3000"
-        else:
-            frontend_url = origin
+        # Keep the same safe redirect behavior on auth errors.
+        frontend_url = resolve_frontend_redirect_url(request)
         
         encoded_error = urllib.parse.quote(error_msg)
         return RedirectResponse(url=f"{frontend_url}/?auth_error={encoded_error}")
@@ -346,7 +384,7 @@ async def chat(
         if not session_id:
             session_id = await memory.create_session(user_id)
         
-        # Process images if provided
+        # Validate and normalize uploaded images before passing to the AI pipeline.
         image_data = []
         if images:
             for image_file in images:

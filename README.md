@@ -4,6 +4,74 @@
 
 A powerful, intelligent AI assistant that seamlessly integrates with your Google Workspace to manage emails, calendar events, tasks, and personal notes. Built with FastAPI, Vertex AI (Gemini), and Google Cloud Platform.
 
+## Chosen Vertical
+
+Productivity and personal operations automation for Google Workspace users.
+
+This solution focuses on reducing daily coordination overhead by unifying Gmail, Calendar, Tasks, and notes behind a single conversational AI interface. The target users are professionals who need a fast "control layer" for planning, communication, and follow-through.
+
+## Approach And Logic
+
+The backend follows a tool-augmented agent orchestration flow:
+
+1. Context gathering: build request context from conversation memory and user state.
+2. Task decomposition: split a user request into actionable steps (calendar, email, tasks, notes, or answer-only).
+3. Response synthesis: execute tools where required and generate a user-facing response.
+
+Design choices:
+- FastAPI for clear API structure and maintainability.
+- Pydantic models for request/response validation.
+- Google OAuth + JWT for authenticated multi-user sessions.
+- Firestore-backed memory for continuity across conversations.
+- Vertex AI for natural-language understanding and response quality.
+
+## How The Solution Works
+
+1. User authenticates via Google OAuth.
+2. Backend stores user profile and OAuth credentials securely in Firestore.
+3. Frontend sends chat messages to `/chat` or `/chat/stream`.
+4. Zenith core orchestrates context agent -> decomposer -> synthesizer.
+5. If needed, tool modules call Google APIs (Gmail, Calendar, Tasks) or notes storage.
+6. Response is returned with optional intent metadata and follow-up suggestions.
+
+## Assumptions Made
+
+- Users have valid Google Workspace access and grant required OAuth scopes.
+- Required Google Cloud APIs are enabled and quota is available.
+- Environment variables and secrets are configured securely outside source control.
+- Firestore and Vertex AI are reachable from the deployment environment.
+- Frontend origin(s) are correctly configured through `ALLOWED_ORIGINS`.
+
+## Evaluation Focus Areas
+
+Submissions will be reviewed on:
+
+- Code Quality - structure, readability, maintainability
+- Security - safe and responsible implementation
+- Efficiency - optimal use of resources
+- Testing - validation of functionality
+- Accessibility - inclusive and usable design
+- Google Services - meaningful integration of Google Services
+
+How this project maps to those focus areas:
+
+- Code Quality: modular backend (`agents`, `tools`, `auth`, `memory`) and typed request/response models.
+- Security: OAuth 2.0, JWT authentication, environment-based configuration, and rate limiting.
+- Efficiency: asynchronous API handling and targeted tool invocation only when needed.
+- Testing: includes Python test files for core assistant behavior (for example `test_executive_summary.py`, `zenith/test_briefing.py`).
+- Accessibility: responsive frontend, clear panel structure, and voice-input support.
+- Google Services: deep integration with Gmail, Calendar, Tasks, Firestore, and Vertex AI.
+
+## Security Notes (Current Risks)
+
+No code changes were made in this update, but a quick review indicates areas to watch:
+
+- In-memory rate limiting (`auth/dependencies.py`) may not protect consistently across multiple instances.
+- PKCE verifier cache in memory (`auth/google_oauth.py`) is lost on restart and can interrupt auth continuity.
+- OAuth callback redirect target in `main.py` is derived from request origin logic; this should be tightly allowlisted to avoid token redirect risk.
+
+These are review findings, not functional modifications in this task.
+
 **🚀 [Quick Start Guide](STARTUP.md)** | **📚 [Integration Guide](INTEGRATION_GUIDE.md)** | **🏗️ [Architecture Overview](PROJECT_SUMMARY.md)**
 
 ![Status](https://img.shields.io/badge/status-active-success.svg)

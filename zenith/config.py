@@ -22,11 +22,17 @@ class Settings(BaseSettings):
         default="http://localhost:8000/auth/callback",
         env="OAUTH_REDIRECT_URI"
     )
+    frontend_redirect_urls: str = Field(
+        default="http://localhost:3000,https://dev-Adhithiya.github.io/Zenith-AI-",
+        env="FRONTEND_REDIRECT_URLS"
+    )
     
     # Firestore Configuration
     firestore_collection_users: str = "users"
     firestore_collection_conversations: str = "conversations"
     firestore_collection_notes: str = "notes"
+    firestore_collection_auth_state: str = "auth_state"
+    firestore_collection_rate_limits: str = "rate_limits"
     
     # Vertex AI Configuration
     vertex_ai_model: str = Field(

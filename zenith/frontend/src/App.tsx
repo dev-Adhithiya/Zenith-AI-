@@ -15,6 +15,7 @@ import { GlassPanel } from './components/ui/GlassPanel';
 import { PanelRight, PanelRightClose } from 'lucide-react';
 
 function AppContent() {
+  // Controls whether the right utility panel stack is fully shown or collapsed.
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
 
   return (
@@ -33,6 +34,7 @@ function AppContent() {
           
           {/* Feature panels (right side) - Collapsible */}
           {isRightSidebarCollapsed ? (
+            // Compact mode: keep a single action to restore full utilities panel.
             <GlassPanel className="w-12 flex flex-col items-center py-4">
               <button
                 onClick={() => setIsRightSidebarCollapsed(false)}
@@ -43,6 +45,7 @@ function AppContent() {
               </button>
             </GlassPanel>
           ) : (
+            // Expanded mode: show briefing + communication/planning feature panels.
             <div className="w-80 flex flex-col gap-4 overflow-y-auto">
               {/* Collapse button */}
               <div className="flex justify-end">
@@ -69,6 +72,7 @@ function AppContent() {
 
 function App() {
   return (
+    // Provider order intentionally wraps auth first, then chat/voice/settings contexts.
     <AuthProvider>
       <ChatProvider>
         <VoiceProvider>

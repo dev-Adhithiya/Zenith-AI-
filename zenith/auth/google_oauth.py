@@ -15,11 +15,11 @@ import httpx
 import structlog
 
 from config import settings
+from memory.firestore_client import get_firestore_client
 
 logger = structlog.get_logger()
 
-# In-memory cache for PKCE code verifiers (state -> code_verifier)
-# For production, use Redis or database
+# In-memory fallback cache for PKCE code verifiers (state -> code_verifier)
 _code_verifier_cache: dict[str, str] = {}
 
 
@@ -27,6 +27,7 @@ class GoogleOAuthManager:
     """Manages Google OAuth 2.0 authentication flow for multi-tenant users."""
     
     def __init__(self):
+        self.firestore = get_firestore_client()
         self.client_config = {
             "web": {
                 "client_id": settings.google_client_id,
@@ -37,8 +38,54 @@ class GoogleOAuthManager:
             }
         }
         self.scopes = settings.google_scopes
+
+    async def _store_code_verifier(self, state: str, code_verifier: str) -> None:
+        """Store PKCE verifier with TTL in Firestore, fallback to memory."""
+        data = {
+            "code_verifier": code_verifier,
+            "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat(),
+        }
+        try:
+            await self.firestore.set_document(
+                collection=settings.firestore_collection_auth_state,
+                document_id=state,
+                data=data,
+                merge=True,
+            )
+        except Exception as exc:
+            logger.warning("Failed to store PKCE verifier in Firestore, using memory fallback", error=str(exc))
+            _code_verifier_cache[state] = code_verifier
+
+    async def _pop_code_verifier(self, state: str) -> Optional[str]:
+        """Read and delete PKCE verifier, preferring Firestore over memory fallback."""
+        try:
+            auth_state = await self.firestore.get_document(
+                collection=settings.firestore_collection_auth_state,
+                document_id=state,
+            )
+            if auth_state:
+                expires_at_raw = auth_state.get("expires_at")
+                if expires_at_raw:
+                    expires_at = datetime.fromisoformat(expires_at_raw)
+                    if expires_at < datetime.utcnow():
+                        await self.firestore.delete_document(
+                            collection=settings.firestore_collection_auth_state,
+                            document_id=state,
+                        )
+                        return None
+
+                code_verifier = auth_state.get("code_verifier")
+                await self.firestore.delete_document(
+                    collection=settings.firestore_collection_auth_state,
+                    document_id=state,
+                )
+                return code_verifier
+        except Exception as exc:
+            logger.warning("Failed reading PKCE verifier from Firestore, using memory fallback", error=str(exc))
+
+        return _code_verifier_cache.pop(state, None)
     
-    def create_authorization_url(self, state: Optional[str] = None) -> tuple[str, str]:
+    async def create_authorization_url(self, state: Optional[str] = None) -> tuple[str, str]:
         """
         Create OAuth authorization URL for user login.
         
@@ -74,7 +121,7 @@ class GoogleOAuthManager:
         )
         
         # Store code verifier for callback (PKCE requirement)
-        _code_verifier_cache[state] = code_verifier
+        await self._store_code_verifier(state=state, code_verifier=code_verifier)
         logger.info("Stored PKCE code verifier", state=state)
         
         logger.info("Created OAuth authorization URL", state=state)
@@ -98,11 +145,12 @@ class GoogleOAuthManager:
         )
         
         # Retrieve and restore PKCE code verifier
-        if state and state in _code_verifier_cache:
-            flow.code_verifier = _code_verifier_cache.pop(state)
+        code_verifier = await self._pop_code_verifier(state=state or "") if state else None
+        if code_verifier:
+            flow.code_verifier = code_verifier
             logger.info("Retrieved PKCE code verifier", state=state)
         else:
-            logger.warning("No PKCE code verifier found", state=state, cache_keys=list(_code_verifier_cache.keys()))
+            logger.warning("No PKCE code verifier found", state=state)
             raise ValueError(f"PKCE code verifier not found for state: {state}. This may happen if the server was restarted. Please try logging in again.")
         
         # Exchange code for tokens
