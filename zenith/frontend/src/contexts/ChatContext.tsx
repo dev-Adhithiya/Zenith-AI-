@@ -121,9 +121,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Note: We don't set error here even if response.error exists
       // because the response already contains the error message in content
       
-    } catch (err: any) {
-      // Only set error for network/server failures
-      const errorMsg = err.message || 'Failed to send message';
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      const errorMsg =
+        raw.length > 200 ? 'Unable to reach the server. Please try again.' : raw || 'Failed to send message';
       setError(errorMsg);
       
       // Add error message

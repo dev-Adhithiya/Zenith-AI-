@@ -68,8 +68,8 @@ def verify_token(token: str) -> dict:
             algorithms=[settings.jwt_algorithm]
         )
         return payload
-    except JWTError as e:
-        logger.warning("Token verification failed", error=str(e))
+    except JWTError:
+        logger.warning("token_verification_failed", reason="jwt_invalid_or_expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

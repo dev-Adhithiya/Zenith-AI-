@@ -5,6 +5,7 @@ import { GlassPanel } from '../ui/GlassPanel';
 import { Mail, ChevronRight, User, Clock, X } from 'lucide-react';
 import { gmailAPI, type Email } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { sanitizeEmailHtml } from '../../lib/sanitizeHtml';
 
 interface EmailDetailModalProps {
   email: Email | null;
@@ -78,10 +79,11 @@ function EmailDetailModal({ email, onClose }: EmailDetailModalProps) {
                 ) : fullEmail?.body_html ? (
                   <div className="bg-white rounded-lg p-2 overflow-hidden mt-2">
                     <iframe
-                      srcDoc={fullEmail.body_html}
-                      title="Email Content"
+                      srcDoc={sanitizeEmailHtml(fullEmail.body_html)}
+                      title="Email HTML content"
                       className="w-full min-h-[500px] bg-white border-0"
-                      sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+                      sandbox=""
+                      referrerPolicy="no-referrer"
                     />
                   </div>
                 ) : (

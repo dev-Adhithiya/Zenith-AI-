@@ -10,7 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python build output at repo root only (do not use bare `lib/` — it hides `zenith/frontend/src/lib`).
+/lib/
 lib64/
 parts/
 sdist/

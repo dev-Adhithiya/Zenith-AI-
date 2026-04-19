@@ -3,16 +3,53 @@ Firestore Client for Zenith AI
 Provides async-compatible Firestore operations
 """
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, Callable, TypeVar, Awaitable
 from functools import lru_cache
 
 from google.cloud import firestore
 from google.cloud.firestore_v1 import AsyncClient
 import structlog
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from config import settings
 
 logger = structlog.get_logger()
+
+T = TypeVar("T")
+
+
+def _is_transient_firestore_error(exc: BaseException) -> bool:
+    try:
+        from google.api_core import exceptions as gexc
+    except ImportError:
+        return False
+    return isinstance(
+        exc,
+        (
+            gexc.DeadlineExceeded,
+            gexc.ServiceUnavailable,
+            gexc.Aborted,
+            gexc.InternalServerError,
+            gexc.ResourceExhausted,
+        ),
+    )
+
+
+async def _with_transient_retry(coro_factory: Callable[[], Awaitable[T]]) -> T:
+    """Retry transient Firestore / gRPC failures with bounded backoff."""
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential_jitter(initial=0.2, max=3.0),
+        retry=retry_if_exception(_is_transient_firestore_error),
+        reraise=True,
+    ):
+        with attempt:
+            return await coro_factory()
 
 
 class FirestoreClient:
@@ -44,8 +81,12 @@ class FirestoreClient:
     ) -> Optional[dict]:
         """Get a single document by ID."""
         doc_ref = self._async_client.collection(collection).document(document_id)
-        doc = await doc_ref.get()
-        
+
+        async def _read():
+            return await doc_ref.get()
+
+        doc = await _with_transient_retry(_read)
+
         if doc.exists:
             return {"id": doc.id, **doc.to_dict()}
         return None
@@ -60,7 +101,11 @@ class FirestoreClient:
         """Set/update a document."""
         doc_ref = self._async_client.collection(collection).document(document_id)
         data["updated_at"] = datetime.utcnow().isoformat()
-        await doc_ref.set(data, merge=merge)
+
+        async def _write():
+            await doc_ref.set(data, merge=merge)
+
+        await _with_transient_retry(_write)
         logger.debug("Document set", collection=collection, document_id=document_id)
     
     async def create_document(
@@ -75,10 +120,18 @@ class FirestoreClient:
         
         if document_id:
             doc_ref = self._async_client.collection(collection).document(document_id)
-            await doc_ref.set(data)
+
+            async def _write():
+                await doc_ref.set(data)
+
+            await _with_transient_retry(_write)
             return document_id
         else:
-            doc_ref = await self._async_client.collection(collection).add(data)
+
+            async def _add():
+                return await self._async_client.collection(collection).add(data)
+
+            doc_ref = await _with_transient_retry(_add)
             return doc_ref[1].id
     
     async def delete_document(
@@ -89,7 +142,11 @@ class FirestoreClient:
         """Delete a document."""
         try:
             doc_ref = self._async_client.collection(collection).document(document_id)
-            await doc_ref.delete()
+
+            async def _del():
+                await doc_ref.delete()
+
+            await _with_transient_retry(_del)
             logger.debug("Document deleted", collection=collection, document_id=document_id)
             return True
         except Exception as e:
@@ -133,8 +190,11 @@ class FirestoreClient:
         
         if limit:
             query = query.limit(limit)
-        
-        docs = await query.get()
+
+        async def _run_query():
+            return await query.get()
+
+        docs = await _with_transient_retry(_run_query)
         return [{"id": doc.id, **doc.to_dict()} for doc in docs]
     
     # ==================== User-Specific Operations ====================
@@ -160,8 +220,11 @@ class FirestoreClient:
         
         if limit:
             query = query.limit(limit)
-        
-        docs = await query.get()
+
+        async def _run_sub_query():
+            return await query.get()
+
+        docs = await _with_transient_retry(_run_sub_query)
         return [{"id": doc.id, **doc.to_dict()} for doc in docs]
     
     async def add_to_user_subcollection(
@@ -184,10 +247,18 @@ class FirestoreClient:
         
         if document_id:
             doc_ref = collection_ref.document(document_id)
-            await doc_ref.set(data)
+
+            async def _write():
+                await doc_ref.set(data)
+
+            await _with_transient_retry(_write)
             return document_id
         else:
-            doc_ref = await collection_ref.add(data)
+
+            async def _add():
+                return await collection_ref.add(data)
+
+            doc_ref = await _with_transient_retry(_add)
             return doc_ref[1].id
 
 

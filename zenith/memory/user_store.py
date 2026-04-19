@@ -2,7 +2,9 @@
 User Store
 Manages user profiles and Google OAuth credentials in Firestore
 """
+from copy import deepcopy
 from datetime import datetime
+from time import monotonic
 from typing import Optional
 from uuid import uuid4
 
@@ -12,6 +14,14 @@ from config import settings
 from .firestore_client import FirestoreClient, get_firestore_client
 
 logger = structlog.get_logger()
+
+# Short TTL read-through cache for get_user_by_id to cut repeat Firestore reads per request burst.
+_USER_ROW_TTL_SEC = 45.0
+_user_row_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _invalidate_user_cache(user_id: str) -> None:
+    _user_row_cache.pop(user_id, None)
 
 
 class UserStore:
@@ -67,11 +77,20 @@ class UserStore:
         )
         
         logger.info("Created new user", user_id=user_id, email=email)
+        _invalidate_user_cache(user_id)
         return user_data
     
     async def get_user_by_id(self, user_id: str) -> Optional[dict]:
         """Get user by their unique ID."""
-        return await self.db.get_document(self.collection, user_id)
+        now = monotonic()
+        cached = _user_row_cache.get(user_id)
+        if cached and (now - cached[0]) < _USER_ROW_TTL_SEC:
+            return deepcopy(cached[1])
+        user = await self.db.get_document(self.collection, user_id)
+        if user:
+            _user_row_cache[user_id] = (now, user)
+            return deepcopy(user)
+        return None
     
     async def get_user_by_email(self, email: str) -> Optional[dict]:
         """Get user by email address."""
@@ -110,6 +129,7 @@ class UserStore:
         )
         
         logger.info("Updated user", user_id=user_id, fields=list(updates.keys()))
+        _invalidate_user_cache(user_id)
         return await self.get_user_by_id(user_id)
     
     async def update_credentials(
@@ -128,6 +148,7 @@ class UserStore:
             merge=True
         )
         logger.debug("Updated user credentials", user_id=user_id)
+        _invalidate_user_cache(user_id)
     
     async def get_credentials(self, user_id: str) -> Optional[dict]:
         """Get user's OAuth credentials."""
@@ -142,6 +163,8 @@ class UserStore:
             data={"last_login": datetime.utcnow().isoformat()},
             merge=True
         )
+        _invalidate_user_cache(user_id)
+        _invalidate_user_cache(user_id)
     
     async def update_settings(
         self,
@@ -162,7 +185,7 @@ class UserStore:
             data={"settings": current_settings},
             merge=True
         )
-        
+        _invalidate_user_cache(user_id)
         return current_settings
     
     async def delete_user(self, user_id: str) -> bool:
@@ -172,6 +195,7 @@ class UserStore:
         """
         await self.db.delete_document(self.collection, user_id)
         logger.warning("Deleted user", user_id=user_id)
+        _invalidate_user_cache(user_id)
         return True
     
     async def get_or_create_user(

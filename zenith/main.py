@@ -38,6 +38,8 @@ from auth.oauth_callback import (
     validate_oauth_callback_query,
     classify_oauth_failure,
 )
+from auth.audit import log_audit_event
+from api_errors import register_exception_handlers
 from memory.user_store import UserStore
 from memory.conversation import ConversationMemory
 from agents.zenith_core import ZenithCore
@@ -182,6 +184,7 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan
 )
+register_exception_handlers(app)
 
 # CORS middleware - Origins loaded from environment for security
 cors_origins = [origin.strip() for origin in settings.allowed_origins.split(",")]
@@ -318,11 +321,19 @@ async def auth_callback(
             email=email
         )
         
-        logger.info("User authenticated", 
-                   user_id=user["user_id"], 
-                   email=email,
-                   is_new_user=is_new)
-        
+        logger.info(
+            "User authenticated",
+            user_id=user["user_id"],
+            email=email,
+            is_new_user=is_new,
+        )
+        log_audit_event(
+            "oauth_login_success",
+            user_id=user["user_id"],
+            email=email,
+            is_new_user=is_new,
+        )
+
         # Prepare user data for redirect
         user_data = {
             "user_id": user["user_id"],
@@ -463,10 +474,14 @@ async def chat(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Chat endpoint error", error=str(e))
+        logger.error(
+            "chat_endpoint_error",
+            exc_type=type(e).__name__,
+            user_id=current_user.get("user_id"),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing request: {str(e)}"
+            detail="Unable to complete this chat request. Please try again.",
         )
 
 
@@ -668,16 +683,17 @@ Generate a brief, natural summary of this information for the user."""
         )
         
     except Exception as e:
-        logger.error("Failed to generate briefing", 
-                    user_id=user_id, 
-                    error=str(e))
-        
-        # Graceful degradation
+        logger.error(
+            "briefing_generation_failed",
+            user_id=user_id,
+            exc_type=type(e).__name__,
+        )
+
         return BriefingResponse(
             status="error",
             title="Your Executive Summary",
             content="Welcome back! I'm here to help you with your calendar, emails, and tasks.",
-            error=str(e)
+            error="briefing_unavailable",
         )
 
 
@@ -1125,10 +1141,24 @@ async def list_sessions(
         # Handle Firestore index not ready error gracefully
         error_msg = str(e)
         if "index" in error_msg.lower():
-            logger.warning(f"Firestore index not ready for sessions: {e}")
-            return {"sessions": [], "count": 0, "error": "Index building - chat history will be available soon"}
-        logger.error(f"Failed to list sessions: {e}")
-        return {"sessions": [], "count": 0, "error": str(e)}
+            logger.warning(
+                "sessions_list_index_pending",
+                exc_type=type(e).__name__,
+            )
+            return {
+                "sessions": [],
+                "count": 0,
+                "error": "Index building - chat history will be available soon",
+            }
+        logger.error(
+            "sessions_list_failed",
+            exc_type=type(e).__name__,
+        )
+        return {
+            "sessions": [],
+            "count": 0,
+            "error": "Unable to load sessions. Please try again later.",
+        }
 
 
 @app.post("/sessions", tags=["Sessions"])
@@ -1181,7 +1211,10 @@ async def delete_session(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting session: {e}", exc_info=True)
+        logger.error(
+            "delete_session_failed",
+            exc_type=type(e).__name__,
+        )
         raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
@@ -1206,8 +1239,10 @@ async def update_settings(
 
 # ==================== Static Files & SPA Routing ====================
 
-# Mount static files for serving assets ONLY
-app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+# Mount static files for serving assets ONLY (optional in minimal/test trees)
+_assets_dir = Path("static") / "assets"
+if _assets_dir.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
 
 # Catch-all route for SPA - MUST be last
 @app.api_route("/{full_path:path}", methods=["GET"], tags=["System"])
@@ -1228,17 +1263,6 @@ async def fallback_spa_route(full_path: str):
         return FileResponse(index_file, media_type="text/html")
     
     raise HTTPException(status_code=404, detail="Frontend index.html not found")
-
-
-# ==================== Error Handlers ====================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail, "code": str(exc.status_code)}
-    )
 
 
 if __name__ == "__main__":

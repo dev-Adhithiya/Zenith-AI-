@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { VoiceProvider } from './contexts/VoiceContext';
@@ -72,16 +73,18 @@ function AppContent() {
 
 function App() {
   return (
-    // Provider order intentionally wraps auth first, then chat/voice/settings contexts.
-    <AuthProvider>
-      <ChatProvider>
-        <VoiceProvider>
-          <SettingsProvider>
-            <AppContent />
-          </SettingsProvider>
-        </VoiceProvider>
-      </ChatProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      {/* Provider order: auth first so chat and panels can call authenticated APIs. */}
+      <AuthProvider>
+        <ChatProvider>
+          <VoiceProvider>
+            <SettingsProvider>
+              <AppContent />
+            </SettingsProvider>
+          </VoiceProvider>
+        </ChatProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -15,8 +15,8 @@ from memory.user_store import UserStore
 from memory.conversation import ConversationMemory
 
 
-async def test_briefing_logic():
-    """Test the briefing generation logic."""
+async def briefing_logic_demo():
+    """Manual/async demo of briefing-related prompts (not a pytest unit test; run via __main__)."""
     print("🧪 Testing Briefing Logic...")
     print("=" * 50)
     
@@ -83,4 +83,4 @@ CRITICAL RULES:
 
 
 if __name__ == "__main__":
-    asyncio.run(test_briefing_logic())
+    asyncio.run(briefing_logic_demo())
