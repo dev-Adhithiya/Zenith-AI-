@@ -3,6 +3,7 @@ Google OAuth 2.0 Authentication Manager
 Handles multi-tenant user authentication with Google Workspace APIs
 """
 import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 from functools import lru_cache
@@ -21,6 +22,11 @@ logger = structlog.get_logger()
 
 # In-memory fallback cache for PKCE code verifiers (state -> code_verifier)
 _code_verifier_cache: dict[str, str] = {}
+
+
+def _state_fingerprint(state: str) -> str:
+    """Short stable id for logs (never log raw OAuth state)."""
+    return hashlib.sha256(state.encode("utf-8")).hexdigest()[:16]
 
 
 class GoogleOAuthManager:
@@ -122,9 +128,9 @@ class GoogleOAuthManager:
         
         # Store code verifier for callback (PKCE requirement)
         await self._store_code_verifier(state=state, code_verifier=code_verifier)
-        logger.info("Stored PKCE code verifier", state=state)
-        
-        logger.info("Created OAuth authorization URL", state=state)
+        logger.info("stored_pkce_verifier", state_fp=_state_fingerprint(state))
+
+        logger.info("created_oauth_authorization_url", state_fp=_state_fingerprint(state))
         return authorization_url, state
     
     async def exchange_code_for_tokens(self, code: str, state: Optional[str] = None) -> dict:
@@ -148,9 +154,9 @@ class GoogleOAuthManager:
         code_verifier = await self._pop_code_verifier(state=state or "") if state else None
         if code_verifier:
             flow.code_verifier = code_verifier
-            logger.info("Retrieved PKCE code verifier", state=state)
+            logger.info("retrieved_pkce_verifier", state_fp=_state_fingerprint(state or ""))
         else:
-            logger.warning("No PKCE code verifier found", state=state)
+            logger.warning("pkce_verifier_missing", state_fp=_state_fingerprint(state or ""))
             raise ValueError(f"PKCE code verifier not found for state: {state}. This may happen if the server was restarted. Please try logging in again.")
         
         # Exchange code for tokens

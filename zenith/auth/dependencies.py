@@ -51,13 +51,13 @@ def create_access_token(user_id: str, email: str, extra_data: Optional[dict] = N
 def verify_token(token: str) -> dict:
     """
     Verify and decode a JWT token.
-    
+
     Args:
         token: JWT token string
-        
+
     Returns:
         Decoded token payload
-        
+
     Raises:
         HTTPException: If token is invalid or expired
     """

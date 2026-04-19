@@ -33,6 +33,11 @@ from auth.dependencies import (
     create_access_token,
     check_rate_limit,
 )
+from auth.oauth_callback import (
+    OAuthCallbackError,
+    validate_oauth_callback_query,
+    classify_oauth_failure,
+)
 from memory.user_store import UserStore
 from memory.conversation import ConversationMemory
 from agents.zenith_core import ZenithCore
@@ -256,11 +261,12 @@ async def login(
 
 @app.get("/auth/callback", tags=["Authentication"])
 async def auth_callback(
-    code: str,
     request: Request,
+    code: Optional[str] = None,
     state: Optional[str] = None,
+    error: Optional[str] = None,
     oauth: GoogleOAuthManager = Depends(get_oauth_manager),
-    user_store: UserStore = Depends(get_user_store)
+    user_store: UserStore = Depends(get_user_store),
 ):
     """
     OAuth callback endpoint.
@@ -269,7 +275,28 @@ async def auth_callback(
     from fastapi.responses import RedirectResponse
     import json
     import urllib.parse
-    
+
+    frontend_url = resolve_frontend_redirect_url(request)
+
+    if error:
+        logger.info("oauth_provider_returned_error", error_code=error.strip()[:128])
+        err_out = "access_denied" if error.strip() == "access_denied" else "signin_failed"
+        return RedirectResponse(
+            url=f"{frontend_url}/?auth_error={urllib.parse.quote(err_out)}"
+        )
+
+    try:
+        code, state = validate_oauth_callback_query(code, state)
+    except OAuthCallbackError as exc:
+        logger.warning(
+            "oauth_callback_invalid_query",
+            public_code=exc.public_code,
+            detail=exc.log_detail,
+        )
+        return RedirectResponse(
+            url=f"{frontend_url}/?auth_error={urllib.parse.quote(exc.public_code)}"
+        )
+
     try:
         # Exchange code for tokens (pass state for PKCE)
         result = await oauth.exchange_code_for_tokens(code, state=state)
@@ -306,26 +333,25 @@ async def auth_callback(
         }
         
         # Redirect only to configured frontend targets (prevents open redirect/token leakage).
-        frontend_url = resolve_frontend_redirect_url(request)
-        
         auth_data = urllib.parse.urlencode({
             "access_token": access_token,
             "user": json.dumps(user_data),
             "is_new_user": str(is_new).lower()
         })
-        
-        logger.info(f"Auth callback redirecting to: {frontend_url}")
+
+        logger.info("auth_callback_success", frontend_base=frontend_url)
         return RedirectResponse(url=f"{frontend_url}/?auth_success=true#{auth_data}")
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error("Authentication failed", error=error_msg)
-        
-        # Keep the same safe redirect behavior on auth errors.
-        frontend_url = resolve_frontend_redirect_url(request)
-        
-        encoded_error = urllib.parse.quote(error_msg)
-        return RedirectResponse(url=f"{frontend_url}/?auth_error={encoded_error}")
+
+    except Exception as exc:
+        err_code = classify_oauth_failure(exc)
+        logger.error(
+            "auth_callback_failed",
+            error_code=err_code,
+            exc_type=type(exc).__name__,
+        )
+        return RedirectResponse(
+            url=f"{frontend_url}/?auth_error={urllib.parse.quote(err_code)}"
+        )
 
 
 @app.get("/auth/me", response_model=UserResponse, tags=["Authentication"])
