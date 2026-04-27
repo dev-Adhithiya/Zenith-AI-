@@ -6,6 +6,7 @@ from typing import Optional
 import structlog
 
 from .vertex_ai import VertexAIClient, get_vertex_client
+from memory.preferences import PreferencesStore
 
 logger = structlog.get_logger()
 
@@ -62,6 +63,9 @@ When presenting lists:
         resolved_message = context.get("resolved_message", user_message)
         chat_history = context.get("chat_history", [])
         intent = context.get("intent", {})
+        dynamic_system_instruction = self._build_system_instruction(
+            context.get("user_preferences")
+        )
         
         # Use custom prompt if provided
         if custom_prompt:
@@ -73,20 +77,68 @@ When presenting lists:
                 results=execution_results
             )
         else:
-            # Pure conversation response
-            prompt = resolved_message
+            prompt = self._build_conversation_prompt(
+                resolved_message=resolved_message,
+                preference_updates=context.get("preference_updates"),
+            )
         
         response = await self.llm.generate(
             prompt=prompt,
-            system_instruction=self.system_instruction,
+            system_instruction=dynamic_system_instruction,
             chat_history=chat_history,
-            temperature=0.7,
+            temperature=0.65 if execution_results is None else 0.45,
+            max_tokens=1200 if execution_results is None else 900,
             images=context.get("images")
         )
         
         logger.info("Synthesized response", response_length=len(response))
         
         return response
+
+    def _build_system_instruction(self, user_preferences: Optional[dict]) -> str:
+        preferences_text = PreferencesStore.build_prompt_context(user_preferences)
+        if not preferences_text:
+            return self.system_instruction
+        return (
+            f"{self.system_instruction}\n\n"
+            "Known user preferences and long-term memory:\n"
+            f"{preferences_text}\n"
+            "Use these preferences when they are relevant, even across new chats. "
+            "Do not mention them unless they help answer the request."
+        )
+
+    def _build_conversation_prompt(
+        self,
+        resolved_message: str,
+        preference_updates: Optional[dict] = None,
+    ) -> str:
+        if not preference_updates:
+            return resolved_message
+
+        memory_profile = preference_updates.get("memory_profile", {})
+        lines: list[str] = []
+        for label, key in (
+            ("likes", "likes"),
+            ("dislikes", "dislikes"),
+            ("avoid", "avoid"),
+            ("preferences", "preferences"),
+            ("notes", "notes"),
+        ):
+            values = memory_profile.get(key, [])
+            if values:
+                lines.append(f"- {label}: {', '.join(values)}")
+
+        if not lines:
+            return resolved_message
+
+        memory_lines = "\n".join(lines)
+        return (
+            "The user just shared a durable personal preference or memory.\n"
+            "Acknowledge briefly that you will remember it for future chats, then respond naturally.\n"
+            "Captured memory:\n"
+            f"{memory_lines}\n\n"
+            f"User message: {resolved_message}"
+        )
     
     async def _build_results_prompt(
         self,
@@ -281,6 +333,8 @@ When presenting lists:
         execution_results: Optional[dict] = None
     ) -> list[str]:
         """Generate relevant follow-up action suggestions."""
+        if not execution_results:
+            return []
         
         system_instruction = """Based on the conversation and results, suggest 2-3 relevant follow-up actions.
 Output as a JSON array of short action phrases.
@@ -298,7 +352,7 @@ Output valid JSON array only."""
             prompt="\n".join(prompt_parts),
             system_instruction=system_instruction,
             temperature=0.5,
-            max_tokens=800
+            max_tokens=256
         )
         
         import json

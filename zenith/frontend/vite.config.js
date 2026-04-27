@@ -15,6 +15,8 @@ export default defineConfig({
             '/notes': 'http://localhost:8000',
             '/sessions': 'http://localhost:8000',
             '/settings': 'http://localhost:8000',
+            '/preferences': 'http://localhost:8000',
+            '/insights': 'http://localhost:8000',
             '/health': 'http://localhost:8000'
         }
     },

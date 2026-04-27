@@ -2,10 +2,12 @@
 from .firestore_client import FirestoreClient, get_firestore_client
 from .conversation import ConversationMemory
 from .user_store import UserStore
+from .preferences import PreferencesStore
 
 __all__ = [
     "FirestoreClient",
     "get_firestore_client",
-    "ConversationMemory", 
+    "ConversationMemory",
     "UserStore",
+    "PreferencesStore",
 ]

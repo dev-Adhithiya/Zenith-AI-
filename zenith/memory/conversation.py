@@ -90,8 +90,21 @@ class ConversationMemory:
         
         if not session:
             # Auto-create session if it doesn't exist
-            await self.create_session(user_id)
-            session = {"messages": []}
+            session_data = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "messages": [],
+                "metadata": {},
+                "started_at": datetime.utcnow().isoformat(),
+                "last_activity": datetime.utcnow().isoformat(),
+            }
+            await self.db.set_document(
+                collection=self.collection,
+                document_id=doc_id,
+                data=session_data,
+                merge=False,
+            )
+            session = session_data
         
         messages = session.get("messages", [])
         messages.append(message)

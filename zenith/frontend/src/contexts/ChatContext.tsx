@@ -15,6 +15,16 @@ interface ChatContextType {
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+function revokeMessageImageUrls(messages: ChatMessage[]) {
+  messages.forEach((message) => {
+    message.images?.forEach((image) => {
+      if (image.src.startsWith('blob:')) {
+        URL.revokeObjectURL(image.src);
+      }
+    });
+  });
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -42,17 +52,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Fetch messages for this session from backend
-      const response = await fetch(`/chat/sessions/${targetSessionId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
-      });
-      
-      if (!response.ok) throw new Error('Failed to load session');
-      
-      const data = await response.json();
+
+      const data = await chatAPI.getSessionMessages(targetSessionId);
       const sessionMessages = data.messages || [];
       
       // Convert to ChatMessage format
@@ -63,7 +64,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         metadata: msg.metadata
       }));
       
-      setMessages(formattedMessages);
+      setMessages((prev) => {
+        revokeMessageImageUrls(prev);
+        return formattedMessages;
+      });
       setSessionId(targetSessionId);
     } catch (err) {
       console.error('Failed to load session:', err);
@@ -140,7 +144,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [sessionId, isLoading]);
 
   const createNewSession = useCallback(() => {
-    setMessages([]);
+    setMessages((prev) => {
+      revokeMessageImageUrls(prev);
+      return [];
+    });
     setSessionId(null);
     setError(null);
 
@@ -153,7 +160,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearMessages = useCallback(() => {
-    setMessages([]);
+    setMessages((prev) => {
+      revokeMessageImageUrls(prev);
+      return [];
+    });
     setError(null);
   }, []);
 

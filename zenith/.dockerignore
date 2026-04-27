@@ -25,7 +25,7 @@ frontend/tsconfig.node.tsbuildinfo
 .git/
 .gitignore
 
-# Environment files (will be set in Cloud Run)
+# Environment files (must not be baked into production images)
 .env
 
 # Documentation and test files

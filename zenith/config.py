@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     google_client_id: str = Field(..., env="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(..., env="GOOGLE_CLIENT_SECRET")
     oauth_redirect_uri: str = Field(
-        default="http://localhost:8000/auth/callback",
+        default="https://zenith-ai-156148005661.asia-south1.run.app/auth/callback",
         env="OAUTH_REDIRECT_URI"
     )
     frontend_redirect_urls: str = Field(
-        default="http://localhost:3000,https://dev-Adhithiya.github.io/Zenith-AI-",
+        default="https://zenith-ai-156148005661.asia-south1.run.app",
         env="FRONTEND_REDIRECT_URLS"
     )
     
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     allowed_origins: str = Field(
-        default="http://localhost:3000,http://localhost:8000",
+        default="https://zenith-ai-156148005661.asia-south1.run.app",
         env="ALLOWED_ORIGINS"
     )
     

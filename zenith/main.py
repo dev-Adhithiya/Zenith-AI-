@@ -42,7 +42,9 @@ from auth.audit import log_audit_event
 from api_errors import register_exception_handlers
 from memory.user_store import UserStore
 from memory.conversation import ConversationMemory
+from memory.preferences import PreferencesStore
 from agents.zenith_core import ZenithCore
+from agents.proactive_agent import ProactiveAgent
 from tools.calendar import CalendarTools
 from tools.gmail import GmailTools
 from tools.tasks import TasksTools
@@ -60,6 +62,9 @@ from models.requests import (
     UpdateNoteRequest,
     SearchNotesRequest,
     UpdateSettingsRequest,
+    UpdatePreferencesRequest,
+    ConfirmActionRequest,
+    EditTaskRequest,
 )
 from models.responses import (
     ChatResponse,
@@ -79,6 +84,10 @@ from models.responses import (
     TokenResponse,
     ErrorResponse,
     BriefingResponse,
+    DailyBriefingResponse,
+    PreferencesResponse,
+    PriorityFeedResponse,
+    TaskEditPreviewResponse,
 )
 
 # LOGIN BRIEFING PROMPT
@@ -218,6 +227,14 @@ def get_conversation_memory() -> ConversationMemory:
 
 def get_zenith_core() -> ZenithCore:
     return ZenithCore()
+
+
+def get_preferences_store() -> PreferencesStore:
+    return PreferencesStore()
+
+
+def get_proactive_agent() -> ProactiveAgent:
+    return ProactiveAgent()
 
 
 # ==================== Health & Info ====================
@@ -394,9 +411,12 @@ async def chat(
     message: str = Form(...),
     session_id: Optional[str] = Form(None),
     images: list[UploadFile] = File(default=[]),
+    debug: bool = Query(default=False, description="Include debug/observability data"),
     current_user: dict = Depends(check_rate_limit),
     zenith: ZenithCore = Depends(get_zenith_core),
-    memory: ConversationMemory = Depends(get_conversation_memory)
+    memory: ConversationMemory = Depends(get_conversation_memory),
+    user_store: UserStore = Depends(get_user_store),
+    pref_store: PreferencesStore = Depends(get_preferences_store),
 ):
     """
     Main chat endpoint - interact with Zenith AI.
@@ -407,6 +427,8 @@ async def chat(
     - Execute appropriate actions (calendar, email, tasks, notes)
     - Respond in natural language
     - Process attached images if provided
+    
+    Pass ?debug=true to include plan, latency, and tool info.
     """
     try:
         user_id = current_user["user_id"]
@@ -452,15 +474,21 @@ async def chat(
         context_message = message
         if image_data:
             context_message = f"[User attached {len(image_data)} image(s)]\n{message}"
-        
-        # Process message through Zenith
+
+        # Load user preferences from the dedicated preferences store.
+        try:
+            user_preferences = await pref_store.get_all_preferences(user_id)
+        except Exception:
+            user_preferences = {}
+
         result = await zenith.process_message(
             user_id=user_id,
             session_id=session_id,
             message=context_message,
-            images=image_data
+            images=image_data,
+            user_preferences=user_preferences,
+            debug=debug,
         )
-        
         return ChatResponse(
             response=result.get("response", ""),
             session_id=session_id,
@@ -469,7 +497,8 @@ async def chat(
             execution_success=result.get("execution_success"),
             error=result.get("error"),
             requires_confirmation=result.get("requires_confirmation"),
-            pending_plan=result.get("pending_plan")
+            pending_plan=result.get("pending_plan"),
+            debug=result.get("debug"),
         )
     except HTTPException:
         raise
@@ -749,6 +778,16 @@ async def create_event(
     return EventResponse(**event)
 
 
+@app.post("/calendar", response_model=EventResponse, tags=["Calendar"])
+async def schedule_meeting(
+    request: CreateEventRequest,
+    current_user: dict = Depends(require_auth),
+    user_store: UserStore = Depends(get_user_store),
+):
+    """Alias endpoint for scheduling meetings from priority feed actions."""
+    return await create_event(request=request, current_user=current_user, user_store=user_store)
+
+
 @app.post("/calendar/quick-add", response_model=EventResponse, tags=["Calendar"])
 async def quick_add_event(
     request: QuickAddEventRequest,
@@ -904,6 +943,37 @@ async def add_task(
     )
     
     return TaskResponse(**task)
+
+
+@app.post("/tasks/edit", response_model=TaskEditPreviewResponse, tags=["Tasks"])
+async def edit_task_preview(
+    request: EditTaskRequest,
+    current_user: dict = Depends(require_auth),
+):
+    """Preview edited task payload for UI 'Edit & Add Task' flow."""
+    _ = current_user  # auth-gated endpoint
+
+    title = request.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Task title is required")
+
+    # Keep task title verb-first for strict task payload contract.
+    first_word = title.split(" ", 1)[0].lower()
+    verbs = {
+        "update", "review", "send", "prepare", "draft",
+        "fix", "share", "confirm", "schedule", "complete",
+        "create", "write", "check",
+    }
+    if first_word not in verbs:
+        title = f"Review {title[0].lower() + title[1:]}" if len(title) > 1 else f"Review {title}"
+
+    return TaskEditPreviewResponse(
+        task_payload={
+            "title": title,
+            "description": request.description,
+            "due": request.due.isoformat() if request.due else None,
+        }
+    )
 
 
 @app.post("/tasks/reminder", response_model=TaskResponse, tags=["Tasks"])
@@ -1239,6 +1309,135 @@ async def update_settings(
 
 # ==================== Static Files & SPA Routing ====================
 
+# ==================== Daily Briefing / Insights ====================
+
+@app.get("/insights/daily-briefing", response_model=DailyBriefingResponse, tags=["Insights"])
+async def daily_briefing(
+    current_user: dict = Depends(get_current_user),
+    user_store: UserStore = Depends(get_user_store),
+    proactive: ProactiveAgent = Depends(get_proactive_agent),
+    pref_store: PreferencesStore = Depends(get_preferences_store),
+):
+    """
+    AI-powered daily briefing with actionable insights.
+    
+    Returns:
+    - Today's meetings
+    - Important unread emails
+    - Pending tasks
+    - AI-generated suggestions and insights
+    """
+    user_id = current_user["user_id"]
+    
+    try:
+        user = await user_store.get_user_by_id(user_id)
+        credentials = user.get("credentials") if user else None
+        
+        if not credentials:
+            return DailyBriefingResponse(
+                status="error",
+                summary="Please re-authenticate to see your daily briefing.",
+            )
+        
+        user_prefs = await pref_store.get_all_preferences(user_id)
+        
+        result = await proactive.generate_daily_briefing(
+            user_id=user_id,
+            credentials=credentials,
+            user_preferences=user_prefs,
+        )
+        
+        return DailyBriefingResponse(**result)
+        
+    except Exception as e:
+        logger.error("daily_briefing_failed", user_id=user_id, exc_type=type(e).__name__)
+        return DailyBriefingResponse(
+            status="error",
+            summary="Unable to generate daily briefing. Please try again later.",
+        )
+
+
+@app.get("/insights/priority-feed", response_model=PriorityFeedResponse, tags=["Insights"])
+async def priority_feed(
+    current_user: dict = Depends(get_current_user),
+    user_store: UserStore = Depends(get_user_store),
+    zenith: ZenithCore = Depends(get_zenith_core),
+):
+    """Strict UI-ready priority feed with email actions and meeting prep."""
+    user = await user_store.get_user_by_id(current_user["user_id"])
+    credentials = user.get("credentials") if user else None
+    if not credentials:
+        return PriorityFeedResponse(
+            status="error",
+            items=[],
+            metadata={"reason": "no_credentials"},
+        )
+
+    result = await zenith.priority_feed.build(credentials=credentials)
+    return PriorityFeedResponse(**result)
+
+
+# ==================== Preferences ====================
+
+@app.get("/preferences", response_model=PreferencesResponse, tags=["Preferences"])
+async def get_preferences(
+    current_user: dict = Depends(require_auth),
+    pref_store: PreferencesStore = Depends(get_preferences_store),
+):
+    """Get user preferences."""
+    prefs = await pref_store.get_all_preferences(current_user["user_id"])
+    return PreferencesResponse(preferences=prefs)
+
+
+@app.patch("/preferences", response_model=PreferencesResponse, tags=["Preferences"])
+async def update_preferences(
+    request: UpdatePreferencesRequest,
+    current_user: dict = Depends(require_auth),
+    pref_store: PreferencesStore = Depends(get_preferences_store),
+):
+    """Update user preferences."""
+    updates = request.model_dump(exclude_none=True)
+    prefs = await pref_store.update_preferences(current_user["user_id"], updates)
+    return PreferencesResponse(preferences=prefs)
+
+
+# ==================== Action Confirmation ====================
+
+@app.post("/chat/confirm", response_model=ChatResponse, tags=["Chat"])
+async def confirm_action(
+    request: ConfirmActionRequest,
+    current_user: dict = Depends(check_rate_limit),
+    zenith: ZenithCore = Depends(get_zenith_core),
+    memory: ConversationMemory = Depends(get_conversation_memory),
+):
+    """
+    Confirm or cancel a pending action from a previous chat.
+    
+    Actions: approve, cancel, edit
+    """
+    user_id = current_user["user_id"]
+    session_id = request.session_id
+    
+    result = await zenith.process_message(
+        user_id=user_id,
+        session_id=session_id,
+        message=request.action,
+    )
+    
+    return ChatResponse(
+        response=result.get("response", ""),
+        session_id=session_id,
+        suggestions=result.get("suggestions", []),
+        intent=result.get("intent"),
+        execution_success=result.get("execution_success"),
+        error=result.get("error"),
+        requires_confirmation=result.get("requires_confirmation"),
+        pending_plan=result.get("pending_plan"),
+    )
+
+
+# ==================== Static Files & SPA Routing ====================
+
 # Mount static files for serving assets ONLY (optional in minimal/test trees)
 _assets_dir = Path("static") / "assets"
 if _assets_dir.is_dir():
@@ -1250,7 +1449,7 @@ async def fallback_spa_route(full_path: str):
     """Fallback to index.html for SPA routing on unknown GET requests."""
     
     # List of API prefixes that should return 404, not redirect to SPA
-    API_ROUTES = {"auth", "chat", "calendar", "gmail", "tasks", "notes", "sessions", "debug", "agent", "health", "api"}
+    API_ROUTES = {"auth", "chat", "calendar", "gmail", "tasks", "notes", "sessions", "debug", "agent", "health", "api", "insights", "preferences"}
     
     # Check if this looks like an API route
     first_segment = full_path.split('/')[0] if full_path else ""

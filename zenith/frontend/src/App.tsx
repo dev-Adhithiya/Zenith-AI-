@@ -7,6 +7,7 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import { MeshGradient } from './components/background/MeshGradient';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
+import { PriorityPanel } from './components/features/PriorityPanel';
 import { BriefingPanel } from './components/features/BriefingPanel';
 import { EmailPanel } from './components/features/EmailPanel';
 import { CalendarPanel } from './components/features/CalendarPanel';
@@ -47,7 +48,7 @@ function AppContent() {
             </GlassPanel>
           ) : (
             // Expanded mode: show briefing + communication/planning feature panels.
-            <div className="w-80 flex flex-col gap-4 overflow-y-auto">
+            <div className="w-96 flex flex-col gap-4 overflow-y-auto">
               {/* Collapse button */}
               <div className="flex justify-end">
                 <button
@@ -58,6 +59,7 @@ function AppContent() {
                   <PanelRightClose className="w-5 h-5 text-white/60" />
                 </button>
               </div>
+              <PriorityPanel />
               <BriefingPanel />
               <EmailPanel />
               <CalendarPanel />

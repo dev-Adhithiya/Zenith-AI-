@@ -1,30 +1,25 @@
 # Zenith AI - Cloud Run Dockerfile
-FROM node:18-alpine AS frontend-builder
 
+FROM node:22-alpine AS frontend-builder
 WORKDIR /frontend
-COPY zenith/frontend/package*.json ./
+COPY frontend/package*.json ./
 RUN npm install --legacy-peer-deps
-
-COPY zenith/frontend/ .
+COPY frontend/ .
 RUN npm run build
+
 
 # Python runtime
 FROM python:3.11-slim
-
 WORKDIR /app
-
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
-
 # Copy backend requirements
-COPY zenith/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy backend code
-COPY zenith/ .
-
+# Copy backend code and .env file
+COPY . .
 # Copy built frontend assets
 COPY --from=frontend-builder /frontend/dist ./static
 

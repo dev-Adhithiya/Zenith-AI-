@@ -7,7 +7,7 @@ import structlog
 
 from .vertex_ai import VertexAIClient, get_vertex_client
 from memory.conversation import ConversationMemory
-from memory.user_store import UserStore
+from memory.preferences import PreferencesStore
 from tools.notes import NotesTools
 
 logger = structlog.get_logger()
@@ -40,7 +40,8 @@ class ContextAgent:
         user_message: str,
         include_knowledge_base: bool = True,
         user_profile: dict = None,
-        images: Optional[list[dict]] = None
+        images: Optional[list[dict]] = None,
+        user_preferences: Optional[dict] = None
     ) -> dict:
         """
         Gather all relevant context for processing a user message.
@@ -65,21 +66,50 @@ class ContextAgent:
         chat_history = await self.memory.get_context_window(
             user_id=user_id,
             session_id=session_id,
-            max_messages=10
+            max_messages=8
         )
+        chat_history = self._trim_chat_history(chat_history)
         
         # Step 2: Resolve context (pronouns, references)
         resolved_message = await self._resolve_references(
             user_message=user_message,
             chat_history=chat_history
         )
+
+        quick_intent = self._quick_classify_intent(resolved_message)
+
+        if quick_intent and quick_intent.get("category") == "A":
+            context = {
+                "original_message": user_message,
+                "resolved_message": resolved_message,
+                "chat_history": chat_history,
+                "entities": {},
+                "relevant_notes": [],
+                "intent": quick_intent,
+                "user_id": user_id,
+                "session_id": session_id,
+                "user_profile": user_profile,
+                "user_preferences": user_preferences or {},
+                "images": images or []
+            }
+            logger.info(
+                "Context gathered via fast path",
+                intent_category=quick_intent.get("category"),
+                intent=quick_intent.get("intent"),
+                has_history=len(chat_history) > 0,
+            )
+            return context
         
         # Step 3: Extract entities mentioned
         entities = await self._extract_entities(resolved_message, user_profile)
         
         # Step 4: Query knowledge base if needed
         relevant_notes = []
-        if include_knowledge_base and entities.get("search_queries"):
+        if (
+            include_knowledge_base
+            and entities.get("search_queries")
+            and self._should_query_knowledge_base(quick_intent, resolved_message)
+        ):
             for query in entities.get("search_queries", []):
                 notes = await self.notes.query_knowledge_base(
                     user_id=user_id,
@@ -89,7 +119,7 @@ class ContextAgent:
                 relevant_notes.extend(notes)
         
         # Step 5: Classify intent
-        intent = await self.llm.classify_intent(
+        intent = quick_intent or await self.llm.classify_intent(
             user_message=resolved_message,
             chat_history=chat_history
         )
@@ -104,6 +134,7 @@ class ContextAgent:
             "user_id": user_id,
             "session_id": session_id,
             "user_profile": user_profile,
+            "user_preferences": user_preferences or {},
             "images": images or []
         }
         
@@ -113,6 +144,120 @@ class ContextAgent:
                    has_history=len(chat_history) > 0)
         
         return context
+
+    @staticmethod
+    def _trim_chat_history(chat_history: list[dict], max_chars_per_message: int = 600) -> list[dict]:
+        """Keep recent history useful without letting long messages bloat prompts."""
+        trimmed: list[dict] = []
+        for message in chat_history[-8:]:
+            content = (message.get("content") or "").strip()
+            if len(content) > max_chars_per_message:
+                content = content[: max_chars_per_message - 3].rstrip() + "..."
+            trimmed.append({
+                "role": message.get("role", "user"),
+                "content": content,
+            })
+        return trimmed
+
+    def _quick_classify_intent(self, user_message: str) -> Optional[dict]:
+        """Fast heuristic classifier to avoid extra model hops on obvious requests."""
+        message = " ".join(user_message.lower().split())
+        if not message:
+            return None
+
+        if PreferencesStore.looks_like_preference_statement(message):
+            return {
+                "category": "A",
+                "intent": "preference_update",
+                "requires_tools": [],
+                "confidence": 0.95,
+                "resolved_entities": {},
+            }
+
+        email_keywords = ("email", "emails", "mail", "gmail", "inbox", "unread", "sender", "subject")
+        calendar_keywords = ("calendar", "meeting", "meet", "schedule", "event", "availability")
+        task_keywords = ("task", "tasks", "todo", "to-do", "remind", "reminder")
+        note_keywords = ("note", "notes", "knowledge base")
+
+        if any(keyword in message for keyword in email_keywords):
+            if any(phrase in message for phrase in ("send email", "draft email", "reply to", "compose email")):
+                intent_name = "send_email"
+            elif any(phrase in message for phrase in ("details", "open that email", "show that email", "tell me about")):
+                intent_name = "email_details"
+            elif any(phrase in message for phrase in ("summarize", "summary", "inbox summary", "unread")):
+                intent_name = "summarize_inbox"
+            else:
+                intent_name = "check_email"
+            return {
+                "category": "B",
+                "intent": intent_name,
+                "requires_tools": ["gmail"],
+                "confidence": 0.88,
+                "resolved_entities": {},
+            }
+
+        if any(keyword in message for keyword in calendar_keywords):
+            if any(phrase in message for phrase in ("create", "schedule", "set up", "book")):
+                intent_name = "create_event"
+            else:
+                intent_name = "check_calendar"
+            return {
+                "category": "B",
+                "intent": intent_name,
+                "requires_tools": ["calendar"],
+                "confidence": 0.88,
+                "resolved_entities": {},
+            }
+
+        if any(keyword in message for keyword in task_keywords):
+            if any(phrase in message for phrase in ("remind", "reminder")):
+                intent_name = "set_reminder"
+            elif any(phrase in message for phrase in ("complete", "completed", "done", "finished")):
+                intent_name = "complete_task"
+            elif any(phrase in message for phrase in ("show", "list", "what are my tasks")):
+                intent_name = "list_tasks"
+            else:
+                intent_name = "add_task"
+            return {
+                "category": "B",
+                "intent": intent_name,
+                "requires_tools": ["tasks"],
+                "confidence": 0.86,
+                "resolved_entities": {},
+            }
+
+        if any(keyword in message for keyword in note_keywords):
+            if any(phrase in message for phrase in ("save", "write down", "take note", "add note")):
+                intent_name = "save_note"
+            else:
+                intent_name = "search_notes"
+            return {
+                "category": "B",
+                "intent": intent_name,
+                "requires_tools": ["notes"],
+                "confidence": 0.84,
+                "resolved_entities": {},
+            }
+
+        return {
+            "category": "A",
+            "intent": "conversation",
+            "requires_tools": [],
+            "confidence": 0.72,
+            "resolved_entities": {},
+        }
+
+    @staticmethod
+    def _should_query_knowledge_base(intent: Optional[dict], resolved_message: str) -> bool:
+        if not intent:
+            return False
+        if "notes" in intent.get("requires_tools", []):
+            return True
+        message = resolved_message.lower()
+        return any(
+            phrase in message
+            for phrase in ("knowledge base", "my notes", "saved notes", "remember this note")
+        )
     
     async def _resolve_references(
         self,
@@ -202,7 +347,8 @@ Only include non-empty arrays. Output valid JSON only."""
         response = await self.llm.generate(
             prompt=f"Message: {message}",
             system_instruction=system_instruction,
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=700,
         )
         
         import json

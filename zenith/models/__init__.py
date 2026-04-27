@@ -5,7 +5,10 @@ from .requests import (
     SendEmailRequest,
     AddTaskRequest,
     SaveNoteRequest,
-    UpdateNoteRequest
+    UpdateNoteRequest,
+    UpdatePreferencesRequest,
+    ConfirmActionRequest,
+    EditTaskRequest,
 )
 from .responses import (
     ChatResponse,
@@ -13,20 +16,35 @@ from .responses import (
     EmailResponse,
     TaskResponse,
     NoteResponse,
-    UserResponse
+    UserResponse,
+    DailyBriefingResponse,
+    PreferencesResponse,
+    InsightItem,
+    DebugResponse,
+    PriorityFeedResponse,
+    TaskEditPreviewResponse,
 )
 
 __all__ = [
     "ChatRequest",
-    "CreateEventRequest", 
+    "CreateEventRequest",
     "SendEmailRequest",
     "AddTaskRequest",
     "SaveNoteRequest",
     "UpdateNoteRequest",
+    "UpdatePreferencesRequest",
+    "ConfirmActionRequest",
+    "EditTaskRequest",
     "ChatResponse",
     "EventResponse",
     "EmailResponse",
     "TaskResponse",
     "NoteResponse",
     "UserResponse",
+    "DailyBriefingResponse",
+    "PreferencesResponse",
+    "InsightItem",
+    "DebugResponse",
+    "PriorityFeedResponse",
+    "TaskEditPreviewResponse",
 ]

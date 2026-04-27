@@ -55,6 +55,11 @@ export function useBriefing(): UseBriefingReturn {
     if (isAuthenticated && !hasFetched) {
       fetchBriefing();
     }
+    if (!isAuthenticated) {
+      setBriefing(null);
+      setError(null);
+      setHasFetched(false);
+    }
   }, [isAuthenticated, hasFetched]);
 
   return {

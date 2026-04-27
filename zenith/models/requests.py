@@ -1,6 +1,6 @@
 """Request models for Zenith AI API."""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from pydantic import BaseModel, Field, EmailStr
 
 
@@ -88,3 +88,49 @@ class UpdateSettingsRequest(BaseModel):
     timezone: Optional[str] = None
     language: Optional[str] = None
     notifications_enabled: Optional[bool] = None
+
+
+# ==================== New Models for Agent Upgrade ====================
+
+
+class UpdatePreferencesRequest(BaseModel):
+    """Request model for updating user preferences."""
+    preferred_meeting_times: Optional[list[str]] = Field(
+        None,
+        description="e.g. ['09:00-12:00', '14:00-16:00']"
+    )
+    frequent_contacts: Optional[list[str]] = Field(
+        None,
+        description="List of frequently contacted email addresses"
+    )
+    email_tone: Optional[str] = Field(
+        None,
+        description="formal | casual | professional"
+    )
+    custom_rules: Optional[list[str]] = Field(
+        None,
+        description="List of custom productivity or communication rules"
+    )
+    working_hours: Optional[dict] = Field(
+        None,
+        description="{'start': '09:00', 'end': '17:00', 'days': ['Monday', ...]}"
+    )
+    timezone: Optional[str] = None
+    notification_preferences: Optional[dict] = None
+
+
+class ConfirmActionRequest(BaseModel):
+    """Request model for confirming a pending action."""
+    session_id: str = Field(..., description="Session with pending action")
+    action: str = Field(
+        default="approve",
+        description="approve | cancel | edit"
+    )
+
+
+class EditTaskRequest(BaseModel):
+    """Request model for editing task payload before creation."""
+
+    title: str = Field(..., min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=5000)
+    due: Optional[datetime] = None

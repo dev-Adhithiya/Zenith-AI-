@@ -506,7 +506,8 @@ Create an execution plan:"""
         response = await self.llm.generate(
             prompt=prompt,
             system_instruction=system_instruction,
-            temperature=0.2
+            temperature=0.2,
+            max_tokens=1200,
         )
         
         import json

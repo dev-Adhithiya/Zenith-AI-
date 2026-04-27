@@ -108,6 +108,72 @@ export interface Briefing {
   };
 }
 
+export interface WorkingHours {
+  start: string;
+  end: string;
+  days: string[];
+}
+
+export interface NotificationPreferences {
+  daily_briefing: boolean;
+  email_alerts: boolean;
+  task_reminders: boolean;
+}
+
+export interface UserPreferences {
+  preferred_meeting_times: string[];
+  frequent_contacts: string[];
+  email_tone: string;
+  custom_rules: string[];
+  working_hours: WorkingHours;
+  timezone: string;
+  notification_preferences: NotificationPreferences;
+  updated_at?: string;
+}
+
+export interface TaskPayload {
+  title: string;
+  description?: string | null;
+  due?: string | null;
+}
+
+export interface MeetingPayload {
+  title: string;
+  description?: string | null;
+  attendees: string[];
+  start_time?: string | null;
+  end_time?: string | null;
+}
+
+export interface EmailActionItem {
+  id: string;
+  type: 'email_action';
+  action_type: 'reply' | 'task' | 'meeting' | 'ignore';
+  ui_actions: string[];
+  title: string;
+  from: string;
+  summary: string;
+  reason: string;
+  draft_reply?: string;
+  task_payload?: TaskPayload;
+  meeting_payload?: MeetingPayload;
+}
+
+export interface MeetingPrepItem {
+  id: string;
+  type: 'meeting_prep';
+  status: 'ready' | 'needs_clarification';
+  title: string;
+  summary: string;
+  reason: string;
+  prep: {
+    risks: string[];
+    talking_points: string[];
+  };
+}
+
+export type PriorityFeedItem = EmailActionItem | MeetingPrepItem;
+
 // Helpers
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('access_token');
@@ -244,6 +310,13 @@ export const chatAPI = {
     });
     return handleResponse(response);
   },
+
+  async getSessionMessages(sessionId: string): Promise<{ session_id: string; messages: ChatMessage[]; count: number }> {
+    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
 };
 
 // Calendar API
@@ -340,6 +413,15 @@ export const tasksAPI = {
     });
     return handleResponse(response);
   },
+
+  async editTaskPreview(task: { title: string; description?: string; due?: string }): Promise<{ status: string; task_payload: TaskPayload }> {
+    const response = await fetch(`${API_BASE_URL}/tasks/edit`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(task),
+    });
+    return handleResponse(response);
+  },
 };
 
 // Notes API
@@ -395,7 +477,7 @@ export const gmailAPI = {
   },
 
   async sendEmail(email: {
-    to: string;
+    to: string[];
     subject: string;
     body: string;
     cc?: string[];
@@ -423,6 +505,33 @@ export const healthAPI = {
 export const briefingAPI = {
   async getBriefing(): Promise<Briefing> {
     const response = await fetch(`${API_BASE_URL}/agent/briefing`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
+export const preferencesAPI = {
+  async getPreferences(): Promise<{ preferences: UserPreferences; updated_at?: string }> {
+    const response = await fetch(`${API_BASE_URL}/preferences`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async updatePreferences(preferences: Partial<UserPreferences>): Promise<{ preferences: UserPreferences; updated_at?: string }> {
+    const response = await fetch(`${API_BASE_URL}/preferences`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(preferences),
+    });
+    return handleResponse(response);
+  },
+};
+
+export const priorityAPI = {
+  async getFeed(): Promise<{ status: string; items: PriorityFeedItem[]; metadata?: Record<string, unknown> }> {
+    const response = await fetch(`${API_BASE_URL}/insights/priority-feed`, {
       headers: getAuthHeaders(),
     });
     return handleResponse(response);

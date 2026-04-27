@@ -164,7 +164,6 @@ class UserStore:
             merge=True
         )
         _invalidate_user_cache(user_id)
-        _invalidate_user_cache(user_id)
     
     async def update_settings(
         self,

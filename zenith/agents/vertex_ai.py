@@ -55,7 +55,7 @@ class VertexAIClient:
             "temperature": 0.7,
             "top_p": 0.95,
             "top_k": 40,
-            "max_output_tokens": 8192,
+            "max_output_tokens": 2048,
         }
         
         # Minimal safety settings - disabled to prevent blocking
@@ -371,7 +371,8 @@ For resolved_entities, extract any specific values mentioned:
         response = await self.generate(
             prompt=prompt,
             system_instruction=system_instruction,
-            temperature=0.1  # Low temperature for classification
+            temperature=0.1,  # Low temperature for classification
+            max_tokens=350,
         )
         
         # Parse JSON response
@@ -434,7 +435,8 @@ Resolved message:"""
         resolved = await self.generate(
             prompt=prompt,
             system_instruction=system_instruction,
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=220,
         )
         
         return resolved.strip()

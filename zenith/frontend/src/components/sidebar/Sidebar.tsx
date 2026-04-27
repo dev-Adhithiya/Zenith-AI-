@@ -27,10 +27,9 @@ import {
 export function Sidebar() {
   const { user, isAuthenticated, logout } = useAuth();
   const { createNewSession, sessionId, loadSession } = useChat();
-  const { speakMode, setSpeakMode } = useSettings();
+  const { speakMode, setSpeakMode, isDarkMode, setIsDarkMode } = useSettings();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
@@ -42,15 +41,6 @@ export function Sidebar() {
     { id: 'tasks', name: 'Tasks', icon: <CheckSquare className="w-4 h-4" />, enabled: true },
     { id: 'notes', name: 'Notes', icon: <StickyNote className="w-4 h-4" />, enabled: true },
   ]);
-
-  // Apply theme changes
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
-    }
-  }, [isDarkMode]);
 
   // Load chat history when authenticated
   useEffect(() => {

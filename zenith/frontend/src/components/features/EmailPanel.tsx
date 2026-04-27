@@ -115,7 +115,7 @@ export function EmailPanel() {
     queryKey: ['gmail', 'messages'],
     queryFn: () => gmailAPI.searchMessages('is:unread', 10),
     enabled: isAuthenticated,
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: isExpanded ? 60000 : false,
   });
 
   if (!isAuthenticated) return null;

@@ -130,7 +130,7 @@ export function CalendarPanel() {
     queryKey: ['calendar', 'events'],
     queryFn: () => calendarAPI.listEvents(10),
     enabled: isAuthenticated,
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: isExpanded ? 60000 : false,
   });
 
   if (!isAuthenticated) return null;
