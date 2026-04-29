@@ -279,14 +279,57 @@ class InboxActionEngine:
             "I have reviewed this and will get back to you shortly."
         )
 
+    def _extract_due_date(self, text: str) -> str | None:
+        import datetime
+        import re
+        
+        now = datetime.datetime.now(datetime.timezone.utc)
+        text_lower = text.lower()
+        
+        # Look for explicit relative dates
+        if re.search(r'\b(due\s+)?today\b', text_lower):
+            return now.replace(hour=23, minute=59).isoformat()
+        if re.search(r'\b(due\s+)?tomorrow\b', text_lower):
+            return (now + datetime.timedelta(days=1)).replace(hour=23, minute=59).isoformat()
+            
+        # Look for days of week: "by friday", "due monday"
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        for i, day in enumerate(days):
+            if re.search(rf'\b(by|due|on)\s+({day})\b', text_lower):
+                # Calculate days until next occurrence
+                days_ahead = i - now.weekday()
+                if days_ahead <= 0: # Target day already happened this week
+                    days_ahead += 7
+                target = now + datetime.timedelta(days=days_ahead)
+                return target.replace(hour=23, minute=59).isoformat()
+                
+        # Look for "next week"
+        if re.search(r'\b(by\s+)?next\s+week\b', text_lower):
+            target = now + datetime.timedelta(days=7)
+            # Default to next Monday
+            days_until_monday = 0 - target.weekday()
+            target = target + datetime.timedelta(days=days_until_monday)
+            return target.replace(hour=23, minute=59).isoformat()
+            
+        # Look for EOD / end of day
+        if re.search(r'\b(by\s+)?(eod|end of day)\b', text_lower):
+            return now.replace(hour=17, minute=0).isoformat()
+
+        return None
+
     def _task_payload(self, email: dict[str, Any]) -> dict[str, Any]:
         summary = self._summary(email)
         title_seed = str(email.get("subject") or "Review email request")
         title = self._ensure_verb_first(title_seed)
+        
+        # Search the raw body text for due dates if available
+        body_text = email.get("body_text") or summary or ""
+        due_date = self._extract_due_date(body_text)
+        
         return {
             "title": title,
             "description": summary if summary != "No additional summary available." else None,
-            "due": None,
+            "due": due_date,
         }
 
     def _meeting_payload(self, email: dict[str, Any]) -> dict[str, Any]:

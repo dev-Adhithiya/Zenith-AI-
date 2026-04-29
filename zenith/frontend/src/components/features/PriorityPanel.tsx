@@ -274,7 +274,12 @@ function ActionEditorModal({
                 />
                 <GlassInput
                   label="Due"
-                  type="datetime-local"
+                  type={editor.due ? "datetime-local" : "text"}
+                  placeholder="Set due date"
+                  onFocus={(e) => e.target.type = 'datetime-local'}
+                  onBlur={(e) => {
+                    if (!e.target.value) e.target.type = 'text';
+                  }}
                   value={editor.due}
                   onChange={(event) => setEditor((current) => current && current.kind === 'task'
                     ? { ...current, due: event.target.value }
@@ -311,7 +316,12 @@ function ActionEditorModal({
                 <div className="grid grid-cols-2 gap-3">
                   <GlassInput
                     label="Start"
-                    type="datetime-local"
+                    type={editor.start ? "datetime-local" : "text"}
+                    placeholder="Set start time"
+                    onFocus={(e) => e.target.type = 'datetime-local'}
+                    onBlur={(e) => {
+                      if (!e.target.value) e.target.type = 'text';
+                    }}
                     value={editor.start}
                     onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
                       ? { ...current, start: event.target.value }
@@ -319,7 +329,12 @@ function ActionEditorModal({
                   />
                   <GlassInput
                     label="End"
-                    type="datetime-local"
+                    type={editor.end ? "datetime-local" : "text"}
+                    placeholder="Set end time"
+                    onFocus={(e) => e.target.type = 'datetime-local'}
+                    onBlur={(e) => {
+                      if (!e.target.value) e.target.type = 'text';
+                    }}
                     value={editor.end}
                     onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
                       ? { ...current, end: event.target.value }
