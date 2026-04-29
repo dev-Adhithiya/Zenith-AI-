@@ -245,7 +245,7 @@ export const authAPI = {
 
 // Chat API
 export const chatAPI = {
-  async sendMessage(message: string, sessionId?: string, images?: File[], emailDraft?: Record<string, any>): Promise<ChatResponse> {
+  async sendMessage(message: string, sessionId?: string, images?: File[], emailDraft?: Record<string, any>, signal?: AbortSignal): Promise<ChatResponse> {
     // Always use FormData for consistency (supports both text-only and with-images)
     const formData = new FormData();
     formData.append('message', message);
@@ -275,6 +275,7 @@ export const chatAPI = {
         headers,
         // DO NOT set Content-Type - let browser set it to multipart/form-data
         body: formData,
+        signal,
       });
       return handleResponse(response);
     } catch (error) {

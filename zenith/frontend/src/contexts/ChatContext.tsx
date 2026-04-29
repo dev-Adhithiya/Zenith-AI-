@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { chatAPI, type ChatMessage, type ChatResponse } from '../lib/api';
 import { useAuth } from './AuthContext';
 
@@ -23,6 +23,7 @@ interface ChatContextType {
   createNewSession: () => void;
   clearMessages: () => void;
   loadSession: (sessionId: string) => Promise<void>;
+  stopMessage: () => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -45,6 +46,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isEmailModeActive, setIsEmailModeActive] = useState(false);
   const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Create initial session when authenticated
   useEffect(() => {
@@ -112,10 +114,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
     setMessages(prev => [...prev, userMessage]);
 
+    abortControllerRef.current = new AbortController();
+
     try {
       // Send to backend, including emailDraft if we are in email mode
       const payloadDraft = isEmailModeActive && emailDraft ? emailDraft : undefined;
-      const response: ChatResponse = await chatAPI.sendMessage(content, sessionId || undefined, images, payloadDraft);
+      const response: ChatResponse = await chatAPI.sendMessage(
+        content, 
+        sessionId || undefined, 
+        images, 
+        payloadDraft, 
+        abortControllerRef.current.signal
+      );
 
       // Auto-trigger email mode if intent is send_email
       if (response.intent?.intent === 'send_email') {
@@ -160,7 +170,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Note: We don't set error here even if response.error exists
       // because the response already contains the error message in content
       
-    } catch (err: unknown) {
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log('[Chat] Message generation stopped by user');
+        return;
+      }
+      
       const raw = err instanceof Error ? err.message : String(err);
       const errorMsg =
         raw.length > 200 ? 'Unable to reach the server. Please try again.' : raw || 'Failed to send message';
@@ -175,6 +190,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [sessionId, isLoading, isEmailModeActive, emailDraft]);
 
@@ -206,6 +222,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
+  const stopMessage = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  }, []);
+
   const value = {
     messages,
     sessionId,
@@ -220,6 +244,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     createNewSession,
     clearMessages,
     loadSession,
+    stopMessage,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

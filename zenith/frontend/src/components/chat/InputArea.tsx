@@ -6,7 +6,7 @@ import { Send, Mic, Square, Sparkles, Upload, Plus, SlidersHorizontal, Mail, X, 
 import { InputAreaAttachments } from './InputAreaAttachments';
 
 export function InputArea() {
-  const { sendMessage, isLoading, isEmailModeActive, setIsEmailModeActive } = useChat();
+  const { sendMessage, isLoading, isEmailModeActive, setIsEmailModeActive, stopMessage } = useChat();
   const { isListening, transcript, toggleListening, isSupported, stopListening, clearTranscript } = useVoice();
   const [input, setInput] = useState('');
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -298,27 +298,37 @@ export function InputArea() {
               </motion.button>
             )}
 
-            {/* Only show Send button if there is input or images */}
-            <AnimatePresence>
-              {(input.trim() || selectedImages.length > 0) && (
+            {/* Send or Stop Button */}
+            <AnimatePresence mode="wait">
+              {isLoading ? (
                 <motion.button
+                  key="stop-btn"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  onClick={stopMessage}
+                  className="p-2 rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-2 ring-red-500/30 transition-colors ml-1 shadow-md"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title="Stop generating"
+                >
+                  <Square className="w-5 h-5" fill="currentColor" />
+                </motion.button>
+              ) : (input.trim() || selectedImages.length > 0) ? (
+                <motion.button
+                  key="send-btn"
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
                   onClick={handleSend}
-                  disabled={isLoading}
                   className="p-2 rounded-full bg-white text-black hover:bg-neutral-200 transition-colors ml-1 shadow-md"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   title="Send message"
                 >
-                  {isLoading ? (
-                    <motion.div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
+                  <Send className="w-5 h-5" />
                 </motion.button>
-              )}
+              ) : null}
             </AnimatePresence>
           </div>
         </div>

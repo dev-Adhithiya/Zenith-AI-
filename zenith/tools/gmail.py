@@ -47,7 +47,8 @@ class GmailTools:
         query: Optional[str] = None,
         max_results: int = 10,
         label_ids: Optional[list[str]] = None,
-        include_spam_trash: bool = False
+        include_spam_trash: bool = False,
+        format: str = "metadata"
     ) -> list[dict]:
         """
         Search Gmail messages.
@@ -89,9 +90,13 @@ class GmailTools:
                     detail = service.users().messages().get(
                         userId="me",
                         id=msg["id"],
-                        format="full"
+                        format=format
                     ).execute()
-                    detailed_messages.append(self._format_full_message(detail))
+                    
+                    if format in ["full", "raw"]:
+                        detailed_messages.append(self._format_full_message(detail))
+                    else:
+                        detailed_messages.append(self._format_message_summary(detail))
                 except Exception as e:
                     logger.warning("Failed to fetch message detail", id=msg["id"], error=str(e))
             
