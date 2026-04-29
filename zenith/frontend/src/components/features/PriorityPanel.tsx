@@ -272,19 +272,22 @@ function ActionEditorModal({
                     ? { ...current, description: event.target.value }
                     : current)}
                 />
-                <GlassInput
-                  label="Due"
-                  type={editor.due ? "datetime-local" : "text"}
-                  placeholder="Set due date"
-                  onFocus={(e) => e.target.type = 'datetime-local'}
-                  onBlur={(e) => {
-                    if (!e.target.value) e.target.type = 'text';
-                  }}
-                  value={editor.due}
-                  onChange={(event) => setEditor((current) => current && current.kind === 'task'
-                    ? { ...current, due: event.target.value }
-                    : current)}
-                />
+                <div className="relative">
+                  <GlassInput
+                    label="Due"
+                    type="datetime-local"
+                    value={editor.due || ''}
+                    onChange={(event) => setEditor((current) => current && current.kind === 'task'
+                      ? { ...current, due: event.target.value }
+                      : current)}
+                    className={!editor.due ? 'text-transparent' : ''}
+                  />
+                  {!editor.due && (
+                    <div className="absolute top-[40px] left-4 pointer-events-none text-white/40">
+                      Set
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -314,32 +317,38 @@ function ActionEditorModal({
                   placeholder="person@example.com, another@example.com"
                 />
                 <div className="grid grid-cols-2 gap-3">
-                  <GlassInput
-                    label="Start"
-                    type={editor.start ? "datetime-local" : "text"}
-                    placeholder="Set start time"
-                    onFocus={(e) => e.target.type = 'datetime-local'}
-                    onBlur={(e) => {
-                      if (!e.target.value) e.target.type = 'text';
-                    }}
-                    value={editor.start}
-                    onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
-                      ? { ...current, start: event.target.value }
-                      : current)}
-                  />
-                  <GlassInput
-                    label="End"
-                    type={editor.end ? "datetime-local" : "text"}
-                    placeholder="Set end time"
-                    onFocus={(e) => e.target.type = 'datetime-local'}
-                    onBlur={(e) => {
-                      if (!e.target.value) e.target.type = 'text';
-                    }}
-                    value={editor.end}
-                    onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
-                      ? { ...current, end: event.target.value }
-                      : current)}
-                  />
+                  <div className="relative">
+                    <GlassInput
+                      label="Start"
+                      type="datetime-local"
+                      value={editor.start || ''}
+                      onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
+                        ? { ...current, start: event.target.value }
+                        : current)}
+                      className={!editor.start ? 'text-transparent' : ''}
+                    />
+                    {!editor.start && (
+                      <div className="absolute top-[40px] left-4 pointer-events-none text-white/40">
+                        Set
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <GlassInput
+                      label="End"
+                      type="datetime-local"
+                      value={editor.end || ''}
+                      onChange={(event) => setEditor((current) => current && current.kind === 'meeting'
+                        ? { ...current, end: event.target.value }
+                        : current)}
+                      className={!editor.end ? 'text-transparent' : ''}
+                    />
+                    {!editor.end && (
+                      <div className="absolute top-[40px] left-4 pointer-events-none text-white/40">
+                        Set
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
