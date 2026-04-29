@@ -235,6 +235,17 @@ class DecomposerAgent:
                 "context_for_response": context
             }
         
+        # send_email: Don't execute tools — let the Synthesizer generate
+        # the draft via <email_draft> XML. The user sends from the Console.
+        if intent_name in ("send_email", "compose_email", "draft_email"):
+            return {
+                "type": "conversation",
+                "requires_execution": False,
+                "response_mode": "email_draft",
+                "context_for_response": context,
+                "goal": "Draft an email based on the user's request",
+            }
+        
         # Category B: Tool execution needed
         intent_name = intent.get("intent", "unknown")
         tools_needed = intent.get("requires_tools", [])

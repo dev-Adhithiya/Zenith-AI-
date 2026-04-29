@@ -182,6 +182,23 @@ class ContextAgent:
         task_keywords = ("task", "tasks", "todo", "to-do", "remind", "reminder")
         note_keywords = ("note", "notes", "knowledge base")
 
+        # Check for email-composing intent first (broader match)
+        send_email_phrases = (
+            "send email", "send mail", "send a mail", "send an email",
+            "draft email", "draft mail", "draft a mail", "draft an email",
+            "compose email", "compose mail", "compose a mail",
+            "write email", "write mail", "write a mail", "write an email",
+            "reply to",
+        )
+        if any(phrase in message for phrase in send_email_phrases):
+            return {
+                "category": "B",
+                "intent": "send_email",
+                "requires_tools": ["gmail"],
+                "confidence": 0.92,
+                "resolved_entities": {},
+            }
+
         if any(keyword in message for keyword in email_keywords):
             if any(phrase in message for phrase in ("send email", "draft email", "reply to", "compose email")):
                 intent_name = "send_email"

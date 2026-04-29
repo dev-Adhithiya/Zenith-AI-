@@ -65,7 +65,8 @@ When presenting lists:
         intent = context.get("intent", {})
         dynamic_system_instruction = self._build_system_instruction(
             user_preferences=context.get("user_preferences"),
-            email_draft=context.get("email_draft")
+            email_draft=context.get("email_draft"),
+            intent=intent
         )
         
         # Use custom prompt if provided
@@ -99,7 +100,8 @@ When presenting lists:
     def _build_system_instruction(
         self, 
         user_preferences: Optional[dict],
-        email_draft: Optional[dict] = None
+        email_draft: Optional[dict] = None,
+        intent: Optional[dict] = None
     ) -> str:
         preferences_text = PreferencesStore.build_prompt_context(user_preferences)
         base_instruction = self.system_instruction
@@ -112,6 +114,11 @@ When presenting lists:
                 "Use these preferences when they are relevant, even across new chats. "
                 "Do not mention them unless they help answer the request."
             )
+
+        # Detect email-related intent even when no draft exists yet
+        email_intents = {"send_email", "compose_email", "draft_email", "reply_to"}
+        intent_name = (intent.get("intent", "") if intent else "").lower()
+        is_email_intent = intent_name in email_intents
             
         if email_draft:
             base_instruction += (
@@ -123,13 +130,34 @@ When presenting lists:
                 f"- Body: {email_draft.get('body', '')}\n\n"
                 "When responding, if the user asks to update or write the email, you MUST update the draft state by appending an XML block at the very end of your response exactly like this:\n"
                 "<email_draft>\n"
-                "{\n"
+                '{\n'
                 '  "to": "recipient@example.com",\n'
                 '  "subject": "Email Subject",\n'
                 '  "body": "The full updated email body here."\n'
-                "}\n"
+                '}\n'
                 "</email_draft>\n"
                 "Strictly preserve all content from the current draft that the user did not ask to change. Output ONLY valid JSON inside the XML block."
+            )
+        elif is_email_intent:
+            # First email request — no draft exists yet, instruct the AI to CREATE one
+            base_instruction += (
+                "\n\nEMAIL DRAFTING MODE — INITIAL DRAFT:\n"
+                "The user is asking you to compose/send/draft an email.\n"
+                "You MUST generate the email draft and output it as an XML block at the very end of your response exactly like this:\n"
+                "<email_draft>\n"
+                '{\n'
+                '  "to": "recipient@example.com",\n'
+                '  "subject": "A clear, relevant subject line",\n'
+                '  "body": "The full email body here."\n'
+                '}\n'
+                "</email_draft>\n"
+                "IMPORTANT RULES:\n"
+                "- Extract the recipient email address from the user's message if provided.\n"
+                "- Generate a professional, relevant subject line based on the user's request.\n"
+                "- Generate the complete email body based on what the user described.\n"
+                "- Output ONLY valid JSON inside the XML block. No markdown code fences.\n"
+                "- Always include all three fields: to, subject, body.\n"
+                "- Before the XML block, briefly tell the user you've drafted the email."
             )
             
         return base_instruction

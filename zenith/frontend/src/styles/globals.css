@@ -248,6 +248,16 @@ textarea:focus {
   box-shadow: none;
 }
 
+/* Fix browser autofill background color */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 30px rgba(0, 0, 0, 0.2) inset !important;
+    -webkit-text-fill-color: var(--color-text-primary) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
 /* Placeholder styling */
 ::placeholder {
   color: rgba(255, 255, 255, 0.4);

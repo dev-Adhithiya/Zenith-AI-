@@ -89,7 +89,7 @@ function EventDetailModal({ event, onClose }: EventDetailModalProps) {
                   <div className="flex flex-wrap gap-1">
                     {event.attendees.map((attendee, i) => (
                       <span key={i} className="text-xs bg-white/10 px-2 py-1 rounded-full text-white/70">
-                        {attendee}
+                        {typeof attendee === 'string' ? attendee : ((attendee as any).name || (attendee as any).email || 'Unknown')}
                       </span>
                     ))}
                   </div>

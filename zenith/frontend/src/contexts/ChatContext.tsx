@@ -127,9 +127,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         abortControllerRef.current.signal
       );
 
-      // Auto-trigger email mode if intent is send_email
-      if (response.intent?.intent === 'send_email') {
+      // Auto-trigger email mode if intent is email-related
+      const emailIntents = ['send_email', 'compose_email', 'draft_email'];
+      if (emailIntents.includes(response.intent?.intent)) {
         setIsEmailModeActive(true);
+        // Initialize a blank draft if none exists yet
+        if (!emailDraft) {
+          setEmailDraft({ to: '', subject: '', body: '' });
+        }
       }
 
       // Update session ID if new
@@ -142,7 +147,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const draftMatch = responseContent.match(/<email_draft>([\s\S]*?)<\/email_draft>/);
       if (draftMatch) {
         try {
-          const draftUpdates = JSON.parse(draftMatch[1].trim());
+          let jsonString = draftMatch[1].trim();
+          if (jsonString.startsWith('```json')) {
+            jsonString = jsonString.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+          } else if (jsonString.startsWith('```')) {
+            jsonString = jsonString.replace(/^```\n?/, '').replace(/\n?```$/, '').trim();
+          }
+          const draftUpdates = JSON.parse(jsonString);
           setEmailDraft(prev => prev ? { ...prev, ...draftUpdates } : draftUpdates);
           setIsEmailModeActive(true); // Ensure mode is active if we receive draft updates
         } catch (e) {

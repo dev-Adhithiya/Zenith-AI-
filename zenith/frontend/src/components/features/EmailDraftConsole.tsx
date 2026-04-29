@@ -39,14 +39,19 @@ export function EmailDraftConsole() {
   const [body, setBody] = useState(emailDraft?.body || '');
   const [isSending, setIsSending] = useState(false);
 
-  // Keep internal state synced if draft changes externally
+  // Keep internal state synced if draft changes externally (e.g. AI updates it)
   useEffect(() => {
     if (emailDraft) {
       if (emailDraft.to !== to) setTo(emailDraft.to);
       if (emailDraft.subject !== subject) setSubject(emailDraft.subject);
       if (emailDraft.body !== body) setBody(emailDraft.body);
     }
-  }, [emailDraft]);
+  }, [emailDraft?.to, emailDraft?.subject, emailDraft?.body]);
+
+  const updateDraft = (updates: Partial<typeof emailDraft>) => {
+    const base = emailDraft || { to: '', subject: '', body: '' };
+    setEmailDraft({ ...base, ...updates });
+  };
 
   const { data: originalEmail, isLoading: isLoadingOriginal } = useQuery({
     queryKey: ['gmail', 'message', emailDraft?.originalMessageId],
@@ -145,7 +150,10 @@ export function EmailDraftConsole() {
             <input 
               type="text" 
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(e) => {
+                setTo(e.target.value);
+                updateDraft({ to: e.target.value });
+              }}
               className="flex-1 bg-transparent border-none outline-none text-sm text-white/90"
               placeholder="recipient@example.com"
             />
@@ -157,7 +165,10 @@ export function EmailDraftConsole() {
             <input 
               type="text" 
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+              onChange={(e) => {
+                setSubject(e.target.value);
+                updateDraft({ subject: e.target.value });
+              }}
               className="flex-1 bg-transparent border-none outline-none text-sm text-white/90"
             />
             <GlassButton variant="ghost" size="sm" className="text-xs py-1 h-auto" onClick={handleGenerateSubject}>
@@ -169,7 +180,10 @@ export function EmailDraftConsole() {
           <div className="flex-1 flex flex-col rounded-xl border border-white/10 bg-black/20 overflow-hidden">
             <textarea 
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                setBody(e.target.value);
+                updateDraft({ body: e.target.value });
+              }}
               className="flex-1 bg-transparent border-none outline-none text-sm text-white/90 p-4 resize-none custom-scrollbar min-h-[200px]"
               placeholder="Write your email here..."
             />
