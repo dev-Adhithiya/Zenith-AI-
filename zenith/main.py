@@ -411,6 +411,7 @@ async def chat(
     message: str = Form(...),
     session_id: Optional[str] = Form(None),
     images: list[UploadFile] = File(default=[]),
+    email_draft: Optional[str] = Form(None),
     debug: bool = Query(default=False, description="Include debug/observability data"),
     current_user: dict = Depends(check_rate_limit),
     zenith: ZenithCore = Depends(get_zenith_core),
@@ -481,12 +482,22 @@ async def chat(
         except Exception:
             user_preferences = {}
 
+        # Parse email draft state if provided
+        draft_state = None
+        if email_draft:
+            try:
+                import json
+                draft_state = json.loads(email_draft)
+            except Exception as e:
+                logger.warning(f"Failed to parse email_draft: {e}")
+
         result = await zenith.process_message(
             user_id=user_id,
             session_id=session_id,
             message=context_message,
             images=image_data,
             user_preferences=user_preferences,
+            email_draft=draft_state,
             debug=debug,
         )
         return ChatResponse(

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
-import { ChatProvider } from './contexts/ChatContext';
+import { ChatProvider, useChat } from './contexts/ChatContext';
 import { VoiceProvider } from './contexts/VoiceContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { MeshGradient } from './components/background/MeshGradient';
@@ -9,7 +9,8 @@ import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { PriorityPanel } from './components/features/PriorityPanel';
 import { BriefingPanel } from './components/features/BriefingPanel';
-import { EmailPanel } from './components/features/EmailPanel';
+import { EmailDraftConsole } from './components/features/EmailDraftConsole';
+
 import { CalendarPanel } from './components/features/CalendarPanel';
 import { TasksPanel } from './components/features/TasksPanel';
 import { NotesPanel } from './components/features/NotesPanel';
@@ -19,6 +20,7 @@ import { PanelRight, PanelRightClose } from 'lucide-react';
 function AppContent() {
   // Controls whether the right utility panel stack is fully shown or collapsed.
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
+  const { isEmailModeActive } = useChat();
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
@@ -30,42 +32,49 @@ function AppContent() {
         {/* Sidebar */}
         <Sidebar />
 
-        {/* Chat area */}
-        <div className="flex-1 flex gap-4">
-          <ChatInterface />
+        {/* Content area */}
+        <div className="flex-1 flex gap-4 w-full max-w-full">
+          <div className="flex-1 min-w-[400px] flex">
+            <ChatInterface />
+          </div>
           
-          {/* Feature panels (right side) - Collapsible */}
-          {isRightSidebarCollapsed ? (
-            // Compact mode: keep a single action to restore full utilities panel.
-            <GlassPanel className="w-12 flex flex-col items-center py-4">
-              <button
-                onClick={() => setIsRightSidebarCollapsed(false)}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                title="Expand panel"
-              >
-                <PanelRight className="w-5 h-5 text-white/60" />
-              </button>
-            </GlassPanel>
-          ) : (
-            // Expanded mode: show briefing + communication/planning feature panels.
-            <div className="w-96 flex flex-col gap-4 overflow-y-auto">
-              {/* Collapse button */}
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setIsRightSidebarCollapsed(true)}
-                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                  title="Collapse panel"
-                >
-                  <PanelRightClose className="w-5 h-5 text-white/60" />
-                </button>
-              </div>
-              <PriorityPanel />
-              <BriefingPanel />
-              <EmailPanel />
-              <CalendarPanel />
-              <TasksPanel />
-              <NotesPanel />
+          {isEmailModeActive ? (
+            <div className="flex-1 min-w-[400px] flex">
+              <EmailDraftConsole />
             </div>
+          ) : (
+            /* Feature panels (right side) - Collapsible */
+            isRightSidebarCollapsed ? (
+              // Compact mode: keep a single action to restore full utilities panel.
+              <GlassPanel className="w-12 flex flex-col items-center py-4 flex-shrink-0">
+                <button
+                  onClick={() => setIsRightSidebarCollapsed(false)}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  title="Expand panel"
+                >
+                  <PanelRight className="w-5 h-5 text-white/60" />
+                </button>
+              </GlassPanel>
+            ) : (
+              // Expanded mode: show briefing + communication/planning feature panels.
+              <div className="w-96 flex flex-col gap-4 overflow-y-auto flex-shrink-0">
+                {/* Collapse button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setIsRightSidebarCollapsed(true)}
+                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                    title="Collapse panel"
+                  >
+                    <PanelRightClose className="w-5 h-5 text-white/60" />
+                  </button>
+                </div>
+                <BriefingPanel />
+                <CalendarPanel />
+                <TasksPanel />
+                <NotesPanel />
+                <PriorityPanel />
+              </div>
+            )
           )}
         </div>
       </div>

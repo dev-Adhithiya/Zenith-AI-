@@ -64,7 +64,8 @@ When presenting lists:
         chat_history = context.get("chat_history", [])
         intent = context.get("intent", {})
         dynamic_system_instruction = self._build_system_instruction(
-            context.get("user_preferences")
+            user_preferences=context.get("user_preferences"),
+            email_draft=context.get("email_draft")
         )
         
         # Use custom prompt if provided
@@ -95,17 +96,43 @@ When presenting lists:
         
         return response
 
-    def _build_system_instruction(self, user_preferences: Optional[dict]) -> str:
+    def _build_system_instruction(
+        self, 
+        user_preferences: Optional[dict],
+        email_draft: Optional[dict] = None
+    ) -> str:
         preferences_text = PreferencesStore.build_prompt_context(user_preferences)
-        if not preferences_text:
-            return self.system_instruction
-        return (
-            f"{self.system_instruction}\n\n"
-            "Known user preferences and long-term memory:\n"
-            f"{preferences_text}\n"
-            "Use these preferences when they are relevant, even across new chats. "
-            "Do not mention them unless they help answer the request."
-        )
+        base_instruction = self.system_instruction
+        
+        if preferences_text:
+            base_instruction = (
+                f"{self.system_instruction}\n\n"
+                "Known user preferences and long-term memory:\n"
+                f"{preferences_text}\n"
+                "Use these preferences when they are relevant, even across new chats. "
+                "Do not mention them unless they help answer the request."
+            )
+            
+        if email_draft:
+            base_instruction += (
+                "\n\nCRITICAL CONSTRAINTS FOR EMAIL DRAFTING:\n"
+                "The user is currently composing an email in the split-screen console.\n"
+                f"Current Draft State:\n"
+                f"- To: {email_draft.get('to', '')}\n"
+                f"- Subject: {email_draft.get('subject', '')}\n"
+                f"- Body: {email_draft.get('body', '')}\n\n"
+                "When responding, if the user asks to update or write the email, you MUST update the draft state by appending an XML block at the very end of your response exactly like this:\n"
+                "<email_draft>\n"
+                "{\n"
+                '  "to": "recipient@example.com",\n'
+                '  "subject": "Email Subject",\n'
+                '  "body": "The full updated email body here."\n'
+                "}\n"
+                "</email_draft>\n"
+                "Strictly preserve all content from the current draft that the user did not ask to change. Output ONLY valid JSON inside the XML block."
+            )
+            
+        return base_instruction
 
     def _build_conversation_prompt(
         self,

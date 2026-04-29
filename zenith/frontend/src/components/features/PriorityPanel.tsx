@@ -6,6 +6,7 @@ import { GlassButton } from '../ui/GlassButton';
 import { GlassInput, GlassTextarea } from '../ui/GlassInput';
 import { useAuth } from '../../contexts/AuthContext';
 import { useChat } from '../../contexts/ChatContext';
+import { sanitizeEmailHtml } from '../../lib/sanitizeHtml';
 import {
   calendarAPI,
   gmailAPI,
@@ -199,7 +200,7 @@ function ActionEditorModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/70 backdrop-blur-3xl z-50 flex items-center justify-center p-4"
         onClick={() => setEditor(null)}
       >
         <motion.div
@@ -337,6 +338,20 @@ function ActionEditorModal({
               >
                 Cancel
               </GlassButton>
+              {editor.kind === 'reply' && (
+                <GlassButton
+                  variant="ghost"
+                  size="md"
+                  className="flex-1 text-sky-300 hover:text-sky-200"
+                  onClick={() => {
+                    const event = new CustomEvent('generate-reply', { detail: editor });
+                    window.dispatchEvent(event);
+                    setEditor(null);
+                  }}
+                >
+                  Generate Reply
+                </GlassButton>
+              )}
               <GlassButton
                 variant="primary"
                 size="md"
@@ -354,14 +369,172 @@ function ActionEditorModal({
   );
 }
 
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+interface EmailDetailModalProps {
+  emailId: string;
+  onClose: () => void;
+}
+
+function EmailDetailModal({ emailId, onClose }: EmailDetailModalProps) {
+  const { setIsEmailModeActive, setEmailDraft, addLocalMessage } = useChat();
+  const { data: fullEmail, isLoading, error } = useQuery({
+    queryKey: ['gmail', 'message', emailId],
+    queryFn: () => gmailAPI.getMessage(emailId),
+    enabled: !!emailId,
+  });
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-black/70 backdrop-blur-3xl z-50 flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-2xl max-h-[90vh] flex flex-col"
+        >
+          <GlassPanel variant="strong" className="p-5 flex flex-col max-h-[90vh]">
+            <div className="flex items-start justify-between mb-4 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                  <Mail className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Email Summary</h3>
+                  {fullEmail && <p className="text-xs text-white/40">{formatTimeAgo(fullEmail.date)}</p>}
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors"  
+              >
+                <X className="w-5 h-5 text-white/60" />
+              </button>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
+              {isLoading ? (
+                <p className="text-sm text-white/50 animate-pulse">Loading message body...</p>
+              ) : error ? (
+                <div className="text-sm text-red-400">Failed to load full message.</div>
+              ) : fullEmail && (
+                <>
+                  <div>
+                    <p className="text-xs text-white/40 mb-1">From</p>
+                    <p className="text-sm text-white/90">{fullEmail.from}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-white/40 mb-1">Subject</p>
+                    <p className="text-sm text-white/90 font-medium">{fullEmail.subject || '(No subject)'}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-white/40 mb-1">Message</p>
+                    {fullEmail.body_html ? (
+                      <div className="bg-white rounded-lg p-2 overflow-hidden mt-2">
+                        <iframe
+                          srcDoc={sanitizeEmailHtml(fullEmail.body_html)}
+                          title="Email HTML content"
+                          className="w-full min-h-[500px] bg-white border-0"
+                          sandbox=""
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap select-text break-words">
+                        {fullEmail.body_text || fullEmail.snippet}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10 flex-shrink-0 flex items-center justify-between">
+              <p className="text-xs text-white/30">
+                Click outside or the X to close
+              </p>
+              {fullEmail && (
+                <GlassButton
+                  variant="ghost"
+                  size="sm"
+                  className="text-sky-300 hover:text-sky-200 hover:bg-sky-500/10"
+                  onClick={() => {
+                    const recipient = parseEmailAddress(fullEmail.from);
+                    const subjectStr = fullEmail.subject?.toLowerCase().startsWith('re:') ? fullEmail.subject : `Re: ${fullEmail.subject || ''}`;
+                    
+                    setIsEmailModeActive(true);
+                    setEmailDraft({
+                      to: recipient,
+                      subject: subjectStr,
+                      body: '',
+                      originalMessageId: fullEmail.id
+                    });
+
+                    setTimeout(() => {
+                      addLocalMessage({
+                        role: 'assistant',
+                        content: "What is the gist of your reply? (e.g., 'Tell them I am attending')"
+                      });
+                    }, 300);
+                    
+                    onClose();
+                  }}
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Reply
+                </GlassButton>
+              )}
+            </div>
+          </GlassPanel>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 export function PriorityPanel() {
   const { isAuthenticated } = useAuth();
-  const { sendMessage } = useChat();
+  const { sendMessage, setIsEmailModeActive, setEmailDraft, addLocalMessage } = useChat();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(true);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [editor, setEditor] = useState<ActionEditorState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+
+  // Listen for the custom event from the modal to generate a reply
+  useState(() => {
+    const handleGenerateReply = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const editorState = customEvent.detail;
+      sendMessage(`Help me write a reply to "${editorState.item.title}" from ${editorState.item.from} about: ${editorState.body || editorState.item.summary}`);
+    };
+    window.addEventListener('generate-reply', handleGenerateReply);
+    return () => window.removeEventListener('generate-reply', handleGenerateReply);
+  });
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['priority-feed'],
@@ -508,8 +681,23 @@ export function PriorityPanel() {
               </div>
             )}
 
-            {items.map((item) => (
-              <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+            {items.map((item) => {
+              const replyAction = item.type === 'email_action' && item.ui_actions.find(a => a.includes('Reply'));
+              const hasReply = !!replyAction;
+              
+              const mergedUiActions = item.type === 'email_action' 
+                ? item.ui_actions.filter(a => !a.includes('Reply'))
+                : [];
+              if (hasReply) mergedUiActions.unshift('Reply');
+
+              return (
+              <div 
+                key={item.id} 
+                className={`rounded-xl border border-white/10 bg-white/5 p-3 ${item.type === 'email_action' ? 'cursor-pointer hover:bg-white/10 transition-colors' : ''}`}
+                onClick={() => {
+                  if (item.type === 'email_action') setSelectedEmailId(item.id);
+                }}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -591,14 +779,15 @@ export function PriorityPanel() {
                 </div>
 
                 {item.type === 'email_action' && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {item.ui_actions.map((uiAction) => {
+                  <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                    {mergedUiActions.map((uiAction) => {
                       if (uiAction === 'Ignore' || uiAction === 'Ignore only') {
                         return (
                           <button
                             key={uiAction}
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setNotice('Dismissed from the priority area.');
                               setDismissedIds((prev) => [...prev, item.id]);
                             }}
@@ -614,7 +803,10 @@ export function PriorityPanel() {
                           <button
                             key={uiAction}
                             type="button"
-                            onClick={() => sendMessage(`Prepare me for a meeting related to "${item.title}" using the surrounding email context.`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              sendMessage(`Prepare me for a meeting related to "${item.title}" using the surrounding email context.`);
+                            }}
                             className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/10 transition-colors"
                           >
                             {uiAction}
@@ -626,9 +818,32 @@ export function PriorityPanel() {
                         <button
                           key={uiAction}
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setNotice(null);
-                            setEditor(createEditorForItem(item, uiAction));
+                            if (uiAction === 'Reply') {
+                              // Trigger email mode and pre-fill fields
+                              const recipient = parseEmailAddress(item.from);
+                              const subjectStr = item.title.toLowerCase().startsWith('re:') ? item.title : `Re: ${item.title}`;
+                              
+                              setIsEmailModeActive(true);
+                              setEmailDraft({
+                                to: recipient,
+                                subject: subjectStr,
+                                body: item.draft_reply ?? '',
+                                originalMessageId: item.id
+                              });
+
+                              // Prompt user for gist in chat
+                              setTimeout(() => {
+                                addLocalMessage({
+                                  role: 'assistant',
+                                  content: "What is the gist of your reply? (e.g., 'Tell them I am attending')"
+                                });
+                              }, 300);
+                            } else {
+                              setEditor(createEditorForItem(item, uiAction));
+                            }
                           }}
                           className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/10 transition-colors"
                         >
@@ -639,7 +854,7 @@ export function PriorityPanel() {
                   </div>
                 )}
               </div>
-            ))}
+            )})}
           </motion.div>
         )}
       </GlassPanel>
@@ -660,6 +875,9 @@ export function PriorityPanel() {
         <div className="fixed bottom-4 right-4 z-50 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {actionMutation.error instanceof Error ? actionMutation.error.message : 'Unable to complete that action.'}
         </div>
+      )}
+      {selectedEmailId && (
+        <EmailDetailModal emailId={selectedEmailId} onClose={() => setSelectedEmailId(null)} />
       )}
     </>
   );

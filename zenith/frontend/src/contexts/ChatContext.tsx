@@ -2,12 +2,24 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback 
 import { chatAPI, type ChatMessage, type ChatResponse } from '../lib/api';
 import { useAuth } from './AuthContext';
 
+export interface EmailDraft {
+  to: string;
+  subject: string;
+  body: string;
+  originalMessageId?: string;
+}
+
 interface ChatContextType {
   messages: ChatMessage[];
   sessionId: string | null;
   isLoading: boolean;
   error: string | null;
+  isEmailModeActive: boolean;
+  setIsEmailModeActive: (active: boolean) => void;
+  emailDraft: EmailDraft | null;
+  setEmailDraft: (draft: EmailDraft | null) => void;
   sendMessage: (content: string, images?: File[]) => Promise<void>;
+  addLocalMessage: (message: Omit<ChatMessage, 'timestamp'>) => void;
   createNewSession: () => void;
   clearMessages: () => void;
   loadSession: (sessionId: string) => Promise<void>;
@@ -31,6 +43,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isEmailModeActive, setIsEmailModeActive] = useState(false);
+  const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
 
   // Create initial session when authenticated
   useEffect(() => {
@@ -99,18 +113,39 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Send to backend
-      const response: ChatResponse = await chatAPI.sendMessage(content, sessionId || undefined, images);
+      // Send to backend, including emailDraft if we are in email mode
+      const payloadDraft = isEmailModeActive && emailDraft ? emailDraft : undefined;
+      const response: ChatResponse = await chatAPI.sendMessage(content, sessionId || undefined, images, payloadDraft);
+
+      // Auto-trigger email mode if intent is send_email
+      if (response.intent?.intent === 'send_email') {
+        setIsEmailModeActive(true);
+      }
 
       // Update session ID if new
       if (response.session_id && response.session_id !== sessionId) {
         setSessionId(response.session_id);
       }
 
+      // Intercept <email_draft> XML blocks
+      let responseContent = response.response;
+      const draftMatch = responseContent.match(/<email_draft>([\s\S]*?)<\/email_draft>/);
+      if (draftMatch) {
+        try {
+          const draftUpdates = JSON.parse(draftMatch[1].trim());
+          setEmailDraft(prev => prev ? { ...prev, ...draftUpdates } : draftUpdates);
+          setIsEmailModeActive(true); // Ensure mode is active if we receive draft updates
+        } catch (e) {
+          console.error("Failed to parse email_draft from response", e);
+        }
+        // Remove the block from the visible message
+        responseContent = responseContent.replace(/<email_draft>[\s\S]*?<\/email_draft>/g, '').trim();
+      }
+
       // Add assistant response
       const assistantMessage: ChatMessage = {
         role: 'assistant',
-        content: response.response,
+        content: responseContent,
         timestamp: new Date().toISOString(),
         metadata: {
           suggestions: response.suggestions,
@@ -141,7 +176,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, isLoading]);
+  }, [sessionId, isLoading, isEmailModeActive, emailDraft]);
+
+  const addLocalMessage = useCallback((message: Omit<ChatMessage, 'timestamp'>) => {
+    setMessages(prev => [...prev, { ...message, timestamp: new Date().toISOString() }]);
+  }, []);
 
   const createNewSession = useCallback(() => {
     setMessages((prev) => {
@@ -172,7 +211,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     sessionId,
     isLoading,
     error,
+    isEmailModeActive,
+    setIsEmailModeActive,
+    emailDraft,
+    setEmailDraft,
     sendMessage,
+    addLocalMessage,
     createNewSession,
     clearMessages,
     loadSession,

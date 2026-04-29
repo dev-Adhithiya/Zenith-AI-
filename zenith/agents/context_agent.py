@@ -41,7 +41,8 @@ class ContextAgent:
         include_knowledge_base: bool = True,
         user_profile: dict = None,
         images: Optional[list[dict]] = None,
-        user_preferences: Optional[dict] = None
+        user_preferences: Optional[dict] = None,
+        email_draft: Optional[dict] = None
     ) -> dict:
         """
         Gather all relevant context for processing a user message.
@@ -90,7 +91,8 @@ class ContextAgent:
                 "session_id": session_id,
                 "user_profile": user_profile,
                 "user_preferences": user_preferences or {},
-                "images": images or []
+                "images": images or [],
+                "email_draft": email_draft
             }
             logger.info(
                 "Context gathered via fast path",
@@ -135,7 +137,8 @@ class ContextAgent:
             "session_id": session_id,
             "user_profile": user_profile,
             "user_preferences": user_preferences or {},
-            "images": images or []
+            "images": images or [],
+            "email_draft": email_draft
         }
         
         logger.info("Context gathered", 

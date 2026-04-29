@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 
 interface InputAreaAttachmentsProps {
+  selectedFiles: File[];
   imagePreviews: string[];
   onRemove: (index: number) => void;
 }
@@ -10,7 +11,7 @@ interface InputAreaAttachmentsProps {
  * Image preview strip lives in its own component so `InputArea` stays focused on
  * send/voice/drag orchestration rather than thumbnail UI details.
  */
-export function InputAreaAttachments({ imagePreviews, onRemove }: InputAreaAttachmentsProps) {
+export function InputAreaAttachments({ selectedFiles, imagePreviews, onRemove }: InputAreaAttachmentsProps) {
   return (
     <AnimatePresence>
       {imagePreviews.length > 0 && (
@@ -32,11 +33,20 @@ export function InputAreaAttachments({ imagePreviews, onRemove }: InputAreaAttac
                 exit={{ opacity: 0, scale: 0.8 }}
                 className="relative group"
               >
-                <img
-                  src={preview}
-                  alt={`Selected attachment preview ${index + 1}`}
-                  className="w-full h-20 object-cover rounded-lg border border-white/10"
-                />
+                {selectedFiles[index]?.type.startsWith('image/') ? (
+                  <img
+                    src={preview}
+                    alt={`Selected attachment preview ${index + 1}`}
+                    className="w-full h-20 object-cover rounded-lg border border-white/10"
+                  />
+                ) : (
+                  <div className="w-full h-20 flex flex-col items-center justify-center bg-white/5 rounded-lg border border-white/10">
+                    <FileText className="w-8 h-8 text-blue-400 mb-1" />
+                    <span className="text-[10px] text-white/70 truncate w-full px-2 text-center">
+                      {selectedFiles[index]?.name}
+                    </span>
+                  </div>
+                )}
                 <motion.button
                   type="button"
                   onClick={() => onRemove(index)}

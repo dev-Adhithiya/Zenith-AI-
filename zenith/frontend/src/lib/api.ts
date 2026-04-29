@@ -245,12 +245,15 @@ export const authAPI = {
 
 // Chat API
 export const chatAPI = {
-  async sendMessage(message: string, sessionId?: string, images?: File[]): Promise<ChatResponse> {
+  async sendMessage(message: string, sessionId?: string, images?: File[], emailDraft?: Record<string, any>): Promise<ChatResponse> {
     // Always use FormData for consistency (supports both text-only and with-images)
     const formData = new FormData();
     formData.append('message', message);
     if (sessionId) {
       formData.append('session_id', sessionId);
+    }
+    if (emailDraft) {
+      formData.append('email_draft', JSON.stringify(emailDraft));
     }
     
     // Append images if provided
@@ -483,6 +486,7 @@ export const gmailAPI = {
     cc?: string[];
     bcc?: string[];
     html_body?: string;
+    reply_to_thread_id?: string;
   }): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/gmail/send`, {
       method: 'POST',

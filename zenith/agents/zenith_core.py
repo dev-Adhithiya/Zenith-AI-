@@ -160,6 +160,7 @@ class ZenithCore:
         message: str,
         images: Optional[list[dict]] = None,
         user_preferences: Optional[dict] = None,
+        email_draft: Optional[dict] = None,
         debug: bool = False,
     ) -> dict:
         """
@@ -171,6 +172,7 @@ class ZenithCore:
             message: The user's message
             images: Optional image attachments
             user_preferences: Pre-loaded preferences (or fetched here)
+            email_draft: Current state of the email draft
             debug: If True, include debug/observability data in response
 
         Returns:
@@ -279,6 +281,7 @@ class ZenithCore:
                 user_profile=user,
                 images=images,
                 user_preferences=user_preferences,
+                email_draft=email_draft,
             )
             if preference_updates:
                 context["preference_updates"] = preference_updates

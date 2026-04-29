@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GlassPanel } from '../ui/GlassPanel';
 import { GlassButton } from '../ui/GlassButton';
 import { GlassInput } from '../ui/GlassInput';
-import { CheckSquare, Square, Plus, ChevronRight, X, Calendar, Check, RotateCcw } from 'lucide-react';
+import { CheckSquare, Square, Plus, ChevronRight, X, Calendar, Check, RotateCcw, HelpCircle } from 'lucide-react';
+import { useChat } from '../../contexts/ChatContext';
 import { tasksAPI, type Task } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -139,6 +140,7 @@ function TaskDetailModal({ task, onClose, onComplete, onUncomplete, isLoading }:
 
 export function TasksPanel() {
   const { isAuthenticated } = useAuth();
+  const { sendMessage } = useChat();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -299,6 +301,16 @@ export function TasksPanel() {
                   </p>
                 )}
               </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  sendMessage(`Help me with this task: ${task.title}`);
+                }}
+                className="mt-0.5 p-1 opacity-0 group-hover:opacity-100 text-white/40 hover:text-purple-400 transition-all"
+                title="Help me with this task"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
             </div>
           ))}
 

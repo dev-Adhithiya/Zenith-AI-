@@ -8,6 +8,7 @@ class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     message: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = Field(None, description="Existing session ID or create new")
+    email_draft: Optional[dict] = Field(None, description="Current state of the email draft")
 
 
 class CreateEventRequest(BaseModel):
