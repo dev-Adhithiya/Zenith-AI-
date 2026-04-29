@@ -27,7 +27,7 @@ function TaskDetailModal({ task, onClose, onComplete, onUncomplete, isLoading }:
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/70 backdrop-blur-3xl z-50 flex items-center justify-center p-4"
       >
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
@@ -304,12 +304,13 @@ export function TasksPanel() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  sendMessage(`Help me with this task: ${task.title}`);
+                  sendMessage(`Help me with this task: ${task.title}. Notes: ${task.notes || 'None'}`);
                 }}
-                className="mt-0.5 p-1 opacity-0 group-hover:opacity-100 text-white/40 hover:text-purple-400 transition-all"
+                className="mt-0.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 text-[10px] font-medium text-purple-300 border border-purple-400/20 hover:bg-purple-500/20 transition-all"
                 title="Help me with this task"
               >
-                <HelpCircle className="w-4 h-4" />
+                <HelpCircle className="w-3 h-3" />
+                <span>Help</span>
               </button>
             </div>
           ))}

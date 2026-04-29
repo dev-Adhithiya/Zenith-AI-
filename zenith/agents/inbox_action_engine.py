@@ -1,12 +1,17 @@
 """
 Inbox Action Engine for Zenith AI.
 Classifies emails into a single strict action type and returns UI-ready payloads.
+
+Uses weighted scoring across all categories instead of first-match-wins
+to improve classification accuracy for ambiguous emails.
 """
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 ACTION_REPLY = "reply"
 ACTION_TASK = "task"
@@ -15,9 +20,9 @@ ACTION_IGNORE = "ignore"
 ALLOWED_ACTIONS = {ACTION_REPLY, ACTION_TASK, ACTION_MEETING, ACTION_IGNORE}
 UI_ACTIONS_BY_TYPE = {
     ACTION_REPLY: ["Send Reply", "Edit Reply", "Ignore"],
-    ACTION_TASK: ["Add Task", "Edit & Add Task", "Ignore"],
+    ACTION_TASK: ["Add Task", "Edit & Add Task", "Help", "Ignore"],
     ACTION_MEETING: ["Schedule Meeting", "Edit Details", "Autoprep", "Ignore"],
-    ACTION_IGNORE: ["Ignore only"],
+    ACTION_IGNORE: ["Ignore"],
 }
 
 VERB_PREFIXES = (
@@ -33,64 +38,176 @@ VERB_PREFIXES = (
     "Complete",
 )
 
+# ── Weighted keyword lists ─────────────────────────────────────────────
+# Each match against these patterns adds +1 to the category score.
+# The category with the highest total score wins.
+
+MEETING_KEYWORDS: tuple[str, ...] = (
+    "meeting",
+    "call",
+    "zoom",
+    "google meet",
+    "teams meeting",
+    "calendar invite",
+    "reschedule",
+    "availability",
+    "standup",
+    "sync up",
+    "sync-up",
+    "huddle",
+    "conference call",
+    "video call",
+    "dial in",
+    "webinar",
+    "book a time",
+    "meet at",
+    "let's meet",
+    "catch up call",
+    "schedule a meeting",
+    "schedule a call",
+    "schedule meeting",
+    "schedule call",
+)
+
+TASK_KEYWORDS: tuple[str, ...] = (
+    "please",
+    "can you",
+    "could you",
+    "need you to",
+    "action required",
+    "action needed",
+    "todo",
+    "to-do",
+    "follow up",
+    "follow-up",
+    "complete",
+    "prepare",
+    "submit",
+    "review",
+    "deadline",
+    "urgent",
+    "asap",
+    "by eod",
+    "by end of day",
+    "by tomorrow",
+    "assigned to you",
+    "your task",
+    "deliverable",
+    "approval needed",
+    "sign off",
+    "take care of",
+)
+
+REPLY_KEYWORDS: tuple[str, ...] = (
+    "let me know",
+    "any update",
+    "any updates",
+    "what is",
+    "when will",
+    "can you confirm",
+    "thoughts on",
+    "your thoughts",
+    "what do you think",
+    "please respond",
+    "please reply",
+    "waiting for your",
+    "get back to me",
+    "looking forward to hearing",
+    "could you clarify",
+    "need your input",
+    "your opinion",
+    "feedback on",
+    "are you available",
+)
+
+IGNORE_KEYWORDS: tuple[str, ...] = (
+    "newsletter",
+    "unsubscribe",
+    "promotion",
+    "receipt",
+    "invoice generated",
+    "notification",
+    "no-reply",
+    "noreply",
+    "donotreply",
+    "do-not-reply",
+    "automated message",
+    "marketing",
+    "subscription",
+    "verify your email",
+    "account statement",
+    "privacy policy",
+    "terms of service",
+)
+
+# Regex patterns that give a +2 (strong signal) bonus
+TASK_REGEX_PATTERNS: tuple[str, ...] = (
+    r"\b(update|review|prepare|submit|complete|draft|fix|share)\b\s+\b(the|a|an|our|this|that|my|your)\b",
+    r"\b(can you|could you|need you to)\b\s+\w+",
+    r"\bdeadline\s*(is|:)",
+    r"\bdue\s+(by|on|date)",
+    r"\bassigned\s+to\s+you\b",
+)
+
+MEETING_REGEX_PATTERNS: tuple[str, ...] = (
+    r"\b(schedule|book|set up)\s+(a\s+)?(meeting|call|session|sync)\b",
+    r"\b(join|attend)\s+(the\s+)?(meeting|call|standup|huddle)\b",
+    r"\bmeeting\s+(at|on|from)\s+\d",
+)
+
+REPLY_REGEX_PATTERNS: tuple[str, ...] = (
+    r"\bplease\s+(respond|reply|confirm|advise)\b",
+    r"\bwhat\s+(are|is|was|were|do|did|should|would|could)\b",
+    r"\bhow\s+(do|can|should|would)\b",
+)
+
 
 class InboxActionEngine:
-    """Classify email items and build strict action payloads."""
+    """Classify email items and build strict action payloads using weighted scoring."""
 
-    MEETING_PATTERNS = (
-        "meeting",
-        "call",
-        "zoom",
-        "google meet",
-        "calendar invite",
-        "reschedule",
-        "availability",
-        "schedule",
-    )
-    TASK_PATTERNS = (
-        "please",
-        "can you",
-        "could you",
-        "need you to",
-        "action required",
-        "todo",
-        "follow up",
-        "complete",
-        "prepare",
-        "submit",
-        "review",
-    )
-    REPLY_PATTERNS = (
-        "?",
-        "let me know",
-        "any update",
-        "what is",
-        "when will",
-        "can you confirm",
-    )
-    IGNORE_PATTERNS = (
-        "newsletter",
-        "unsubscribe",
-        "promotion",
-        "receipt",
-        "invoice generated",
-        "notification",
-    )
+    # Keyword weight per match
+    _KEYWORD_WEIGHT = 1
+    # Regex weight per match (stronger signal)
+    _REGEX_WEIGHT = 2
 
     def classify_email(self, email: dict[str, Any]) -> str:
-        """Return exactly one action type using strict precedence."""
+        """Return exactly one action type using weighted scoring across all categories."""
         text = self._email_text(email)
         lowered = text.lower()
 
-        if self._contains_any(lowered, self.MEETING_PATTERNS):
-            return ACTION_MEETING
-        if self._is_task_request(lowered):
-            return ACTION_TASK
-        if self._contains_any(lowered, self.REPLY_PATTERNS):
-            return ACTION_REPLY
-        if self._contains_any(lowered, self.IGNORE_PATTERNS):
+        # Check ignore first — if strong ignore signals, skip scoring
+        ignore_score = self._count_matches(lowered, IGNORE_KEYWORDS) * self._KEYWORD_WEIGHT
+        if ignore_score >= 2:
             return ACTION_IGNORE
-        return ACTION_IGNORE
+
+        # Score all categories
+        scores: dict[str, int] = {
+            ACTION_MEETING: 0,
+            ACTION_TASK: 0,
+            ACTION_REPLY: 0,
+            ACTION_IGNORE: ignore_score,
+        }
+
+        # Keyword scoring
+        scores[ACTION_MEETING] += self._count_matches(lowered, MEETING_KEYWORDS) * self._KEYWORD_WEIGHT
+        scores[ACTION_TASK] += self._count_matches(lowered, TASK_KEYWORDS) * self._KEYWORD_WEIGHT
+        scores[ACTION_REPLY] += self._count_matches(lowered, REPLY_KEYWORDS) * self._KEYWORD_WEIGHT
+
+        # Regex scoring (stronger signal)
+        scores[ACTION_MEETING] += self._count_regex_matches(lowered, MEETING_REGEX_PATTERNS) * self._REGEX_WEIGHT
+        scores[ACTION_TASK] += self._count_regex_matches(lowered, TASK_REGEX_PATTERNS) * self._REGEX_WEIGHT
+        scores[ACTION_REPLY] += self._count_regex_matches(lowered, REPLY_REGEX_PATTERNS) * self._REGEX_WEIGHT
+
+        # Find the winner — ties broken by precedence: meeting > task > reply > ignore
+        precedence = [ACTION_MEETING, ACTION_TASK, ACTION_REPLY, ACTION_IGNORE]
+        best_action = ACTION_IGNORE
+        best_score = 0
+        for action in precedence:
+            if scores[action] > best_score:
+                best_score = scores[action]
+                best_action = action
+
+        return best_action
 
     def build_email_action_item(self, email: dict[str, Any]) -> dict[str, Any]:
         """Build a strict UI-ready email action item."""
@@ -118,7 +235,16 @@ class InboxActionEngine:
 
     def build_email_action_items(self, emails: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert a list of email dicts into strict action items."""
-        return [self.build_email_action_item(email) for email in emails]
+        items: list[dict[str, Any]] = []
+        for email in emails:
+            try:
+                items.append(self.build_email_action_item(email))
+            except Exception:
+                logger.warning(
+                    "Skipped email during classification",
+                    extra={"email_id": email.get("id", "unknown")},
+                )
+        return items
 
     def _email_text(self, email: dict[str, Any]) -> str:
         parts = [
@@ -202,13 +328,11 @@ class InboxActionEngine:
             raise ValueError("Exactly one payload is allowed for non-ignore actions")
 
     @staticmethod
-    def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
-        return any(pattern in text for pattern in patterns)
+    def _count_matches(text: str, patterns: tuple[str, ...]) -> int:
+        """Count how many patterns appear in the text."""
+        return sum(1 for pattern in patterns if pattern in text)
 
-    def _is_task_request(self, text: str) -> bool:
-        if self._contains_any(text, self.TASK_PATTERNS):
-            return True
-        command_patterns = (
-            r"\b(update|review|prepare|submit|complete|draft|fix|share)\b\s+\b(the|a|an|our|this|that|my|your)\b",
-        )
-        return any(re.search(pattern, text) for pattern in command_patterns)
+    @staticmethod
+    def _count_regex_matches(text: str, patterns: tuple[str, ...]) -> int:
+        """Count how many regex patterns match in the text."""
+        return sum(1 for pattern in patterns if re.search(pattern, text))

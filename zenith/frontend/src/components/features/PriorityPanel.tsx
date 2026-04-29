@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GlassPanel } from '../ui/GlassPanel';
@@ -526,7 +526,7 @@ export function PriorityPanel() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
   // Listen for the custom event from the modal to generate a reply
-  useState(() => {
+  useEffect(() => {
     const handleGenerateReply = (e: Event) => {
       const customEvent = e as CustomEvent;
       const editorState = customEvent.detail;
@@ -534,7 +534,7 @@ export function PriorityPanel() {
     };
     window.addEventListener('generate-reply', handleGenerateReply);
     return () => window.removeEventListener('generate-reply', handleGenerateReply);
-  });
+  }, [sendMessage]);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['priority-feed'],
@@ -821,6 +821,10 @@ export function PriorityPanel() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setNotice(null);
+                            if (uiAction === 'Help') {
+                              sendMessage(`Help me with this task: "${item.title}". Context: ${item.summary}`);
+                              return;
+                            }
                             if (uiAction === 'Reply') {
                               // Trigger email mode and pre-fill fields
                               const recipient = parseEmailAddress(item.from);
@@ -845,7 +849,11 @@ export function PriorityPanel() {
                               setEditor(createEditorForItem(item, uiAction));
                             }
                           }}
-                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/10 transition-colors"
+                          className={`rounded-lg border border-white/10 px-3 py-1.5 text-xs transition-colors ${
+                            uiAction === 'Help' 
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-400/30 hover:bg-blue-500/30' 
+                              : 'text-white/80 hover:bg-white/10'
+                          }`}
                         >
                           {uiAction}
                         </button>

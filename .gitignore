@@ -10,6 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+cloud-deploy.ps1
 # Python build output at repo root only (do not use bare `lib/` — it hides `zenith/frontend/src/lib`).
 /lib/
 lib64/

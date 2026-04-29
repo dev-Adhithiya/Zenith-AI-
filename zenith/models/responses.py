@@ -237,9 +237,9 @@ class EmailActionItem(BaseModel):
     def validate_payload_mapping(self) -> "EmailActionItem":
         expected_actions = {
             "reply": ["Send Reply", "Edit Reply", "Ignore"],
-            "task": ["Add Task", "Edit & Add Task", "Ignore"],
+            "task": ["Add Task", "Edit & Add Task", "Help", "Ignore"],
             "meeting": ["Schedule Meeting", "Edit Details", "Autoprep", "Ignore"],
-            "ignore": ["Ignore only"],
+            "ignore": ["Ignore"],
         }
         if self.ui_actions != expected_actions[self.action_type]:
             raise ValueError("ui_actions do not match action_type contract")

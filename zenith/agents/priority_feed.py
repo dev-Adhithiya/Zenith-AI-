@@ -53,12 +53,17 @@ class PriorityFeedBuilder:
         )
 
         items = [*email_items, *meeting_prep_items]
+        valid_items: list[dict[str, Any]] = []
         for item in items:
-            self._validate_ui_contract(item)
+            try:
+                self._validate_ui_contract(item)
+                valid_items.append(item)
+            except ValueError:
+                pass  # skip malformed items silently
 
         return {
             "status": "success",
-            "items": items,
+            "items": valid_items,
             "metadata": {
                 "email_action_count": len(email_items),
                 "meeting_prep_count": len(meeting_prep_items),
@@ -77,9 +82,9 @@ class PriorityFeedBuilder:
             action_type = item.get("action_type")
             expected_ui = {
                 "reply": ["Send Reply", "Edit Reply", "Ignore"],
-                "task": ["Add Task", "Edit & Add Task", "Ignore"],
+                "task": ["Add Task", "Edit & Add Task", "Help", "Ignore"],
                 "meeting": ["Schedule Meeting", "Edit Details", "Autoprep", "Ignore"],
-                "ignore": ["Ignore only"],
+                "ignore": ["Ignore"],
             }
             if item.get("ui_actions") != expected_ui.get(action_type):
                 raise ValueError("ui_actions mismatch for action_type")

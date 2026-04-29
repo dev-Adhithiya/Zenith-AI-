@@ -12,7 +12,7 @@ def test_task_over_reply_precedence():
     }
     item = engine.build_email_action_item(email)
     assert item["action_type"] == "task"
-    assert item["ui_actions"] == ["Add Task", "Edit & Add Task", "Ignore"]
+    assert item["ui_actions"] == ["Add Task", "Edit & Add Task", "Help", "Ignore"]
     assert "task_payload" in item
     assert item["task_payload"]["title"].split(" ", 1)[0] in {
         "Update", "Review", "Send", "Prepare", "Draft", "Fix", "Share", "Confirm", "Schedule", "Complete"
@@ -60,7 +60,7 @@ def test_ignore_contract():
     }
     item = engine.build_email_action_item(email)
     assert item["action_type"] == "ignore"
-    assert item["ui_actions"] == ["Ignore only"]
+    assert item["ui_actions"] == ["Ignore"]
     assert "draft_reply" not in item
     assert "meeting_payload" not in item
     assert "task_payload" not in item

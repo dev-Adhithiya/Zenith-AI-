@@ -30,6 +30,16 @@ class GmailTools:
     def _get_service(self, credentials_dict: dict):
         """Get Gmail API service."""
         return self.oauth.build_service("gmail", "v1", credentials_dict)
+
+    async def get_user_email(self, credentials: dict) -> str:
+        """Get the current user's email address."""
+        service = self._get_service(credentials)
+        try:
+            profile = service.users().getProfile(userId="me").execute()
+            return profile.get("emailAddress", "")
+        except HttpError as e:
+            logger.error("Failed to get user email", error=str(e))
+            return ""
     
     async def search_messages(
         self,
@@ -71,16 +81,19 @@ class GmailTools:
             results = service.users().messages().list(**request_params).execute()
             messages = results.get("messages", [])
             
-            # Fetch details for each message
+            # Fetch details for each message sequentially for safety
+            # Concurrent calls to the same service object are not thread-safe.
             detailed_messages = []
             for msg in messages:
-                message_detail = service.users().messages().get(
-                    userId="me",
-                    id=msg["id"],
-                    format="metadata",
-                    metadataHeaders=["From", "To", "Subject", "Date"]
-                ).execute()
-                detailed_messages.append(self._format_message_summary(message_detail))
+                try:
+                    detail = service.users().messages().get(
+                        userId="me",
+                        id=msg["id"],
+                        format="full"
+                    ).execute()
+                    detailed_messages.append(self._format_full_message(detail))
+                except Exception as e:
+                    logger.warning("Failed to fetch message detail", id=msg["id"], error=str(e))
             
             logger.info("Searched messages", count=len(detailed_messages), query=query)
             return detailed_messages
@@ -575,34 +588,50 @@ class GmailTools:
     def _format_full_message(self, message: dict) -> dict:
         """Format a full message with body."""
         summary = self._format_message_summary(message)
-        
-        # Extract body
-        body_text = ""
-        body_html = ""
-        
         payload = message.get("payload", {})
         
-        # Handle different MIME structures
-        if "parts" in payload:
-            for part in payload["parts"]:
-                mime_type = part.get("mimeType", "")
-                data = part.get("body", {}).get("data", "")
-                
-                if data:
-                    decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
-                    if mime_type == "text/plain":
-                        body_text = decoded
-                    elif mime_type == "text/html":
-                        body_html = decoded
-        else:
-            # Simple message without parts
-            data = payload.get("body", {}).get("data", "")
-            if data:
-                body_text = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        # Extract body and attachments
+        body_text, body_html, attachments, extensions = self._recursive_extract(payload)
         
         summary["body_text"] = body_text
         summary["body_html"] = body_html
+        summary["attachments"] = attachments
+        summary["attachment_extensions"] = extensions
         summary["size_estimate"] = message.get("sizeEstimate")
         summary["internal_date"] = message.get("internalDate")
         
         return summary
+
+    def _recursive_extract(self, part: dict) -> tuple[str, str, list[str], list[str]]:
+        """Recursively extract text, html, and attachments from message parts."""
+        body_text = ""
+        body_html = ""
+        attachments = []
+        extensions = []
+        
+        mime_type = part.get("mimeType", "")
+        filename = part.get("filename", "")
+        body = part.get("body", {})
+        data = body.get("data", "")
+        
+        if filename:
+            attachments.append(filename)
+            if "." in filename:
+                extensions.append("." + filename.split(".")[-1].lower())
+        
+        if data:
+            decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+            if mime_type == "text/plain":
+                body_text = decoded
+            elif mime_type == "text/html":
+                body_html = decoded
+        
+        if "parts" in part:
+            for subpart in part["parts"]:
+                sub_text, sub_html, sub_att, sub_ext = self._recursive_extract(subpart)
+                body_text += sub_text
+                body_html += sub_html
+                attachments.extend(sub_att)
+                extensions.extend(sub_ext)
+                
+        return body_text, body_html, attachments, extensions
