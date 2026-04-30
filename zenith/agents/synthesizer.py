@@ -89,7 +89,7 @@ When presenting lists:
             system_instruction=dynamic_system_instruction,
             chat_history=chat_history,
             temperature=0.65 if execution_results is None else 0.45,
-            max_tokens=1200 if execution_results is None else 900,
+            max_tokens=3000 if execution_results is None else 2048,
             images=context.get("images")
         )
         

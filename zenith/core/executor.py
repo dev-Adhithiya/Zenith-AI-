@@ -182,8 +182,12 @@ class PlanExecutor:
         # --- Safe-execution check ---
         risk_level, confirmation_msg = _assess_risk(steps)
 
-        has_write = any(s.get("action") in WRITE_ACTIONS for s in steps)
-        if has_write and not skip_confirmation:
+        # Only require confirmation for genuinely HIGH-risk operations
+        # (e.g. bulk email to many recipients, meetings with many attendees).
+        # Normal single-step writes (create event, add task, save note)
+        # should execute immediately — blocking them caused the AI to
+        # hallucinate that it performed actions when it never did.
+        if risk_level == "high" and confirmation_msg and not skip_confirmation:
             return {
                 "success": True,
                 "step_results": [],

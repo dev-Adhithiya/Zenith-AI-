@@ -200,12 +200,16 @@ class ZenithCore:
                 "requires_auth": True,
             }
 
+        # Strip force intent tag before saving to history
+        import re
+        clean_history_message = re.sub(r'(?i)\[force intent: [a-z]+\]\s*', '', message).strip()
+
         # Save user message to conversation history
         await self.memory.add_message(
             user_id=user_id,
             session_id=session_id,
             role="user",
-            content=message,
+            content=clean_history_message,
         )
 
         # --- Preference extraction (fire-and-forget style) ---

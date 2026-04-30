@@ -78,11 +78,15 @@ class ContextAgent:
         )
 
         quick_intent = self._quick_classify_intent(resolved_message)
+        
+        # Strip forced intent tags from resolved_message before passing to LLM
+        import re
+        clean_resolved_message = re.sub(r'(?i)\[force intent: [a-z]+\]\s*', '', resolved_message).strip()
 
         if quick_intent and quick_intent.get("category") == "A":
             context = {
                 "original_message": user_message,
-                "resolved_message": resolved_message,
+                "resolved_message": clean_resolved_message,
                 "chat_history": chat_history,
                 "entities": {},
                 "relevant_notes": [],
@@ -102,15 +106,15 @@ class ContextAgent:
             )
             return context
         
-        # Step 3: Extract entities mentioned
-        entities = await self._extract_entities(resolved_message, user_profile)
+        # Step 3: Extract entities mentioned using cleaned message
+        entities = await self._extract_entities(clean_resolved_message, user_profile)
         
         # Step 4: Query knowledge base if needed
         relevant_notes = []
         if (
             include_knowledge_base
             and entities.get("search_queries")
-            and self._should_query_knowledge_base(quick_intent, resolved_message)
+            and self._should_query_knowledge_base(quick_intent, clean_resolved_message)
         ):
             for query in entities.get("search_queries", []):
                 notes = await self.notes.query_knowledge_base(
@@ -120,15 +124,15 @@ class ContextAgent:
                 )
                 relevant_notes.extend(notes)
         
-        # Step 5: Classify intent
+        # Step 5: Classify intent using cleaned message if no quick intent
         intent = quick_intent or await self.llm.classify_intent(
-            user_message=resolved_message,
+            user_message=clean_resolved_message,
             chat_history=chat_history
         )
         
         context = {
             "original_message": user_message,
-            "resolved_message": resolved_message,
+            "resolved_message": clean_resolved_message,
             "chat_history": chat_history,
             "entities": entities,
             "relevant_notes": relevant_notes,

@@ -78,10 +78,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const data = await chatAPI.getSessionMessages(targetSessionId);
       const sessionMessages = data.messages || [];
       
-      // Convert to ChatMessage format
+      // Convert to ChatMessage format and strip any old force-intent tags
       const formattedMessages: ChatMessage[] = sessionMessages.map((msg: any) => ({
         role: msg.role,
-        content: msg.content,
+        content: msg.content.replace(/\[force intent: [a-z]+\]\s*/ig, ''),
         timestamp: msg.timestamp,
         metadata: msg.metadata
       }));
