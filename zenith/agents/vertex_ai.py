@@ -377,14 +377,14 @@ For resolved_entities, extract any specific values mentioned:
         
         # Parse JSON response
         import json
+        import re as _re
         try:
             # Extract JSON from response (may have markdown code blocks)
             response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
-            
+            # Robust JSON extraction: find the first {...} block
+            json_match = _re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                return json.loads(json_match.group())
             return json.loads(response)
         except json.JSONDecodeError:
             logger.warning("Failed to parse intent classification", response=response)

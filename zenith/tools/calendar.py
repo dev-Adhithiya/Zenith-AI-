@@ -395,9 +395,6 @@ class CalendarTools:
         if calendar_ids is None:
             calendar_ids = ["primary"]
 
-        time_min = _parse_dt(time_min)
-        time_max = _parse_dt(time_max)
-
         try:
             time_min_str = time_min.isoformat() if (time_min.tzinfo or "+" in time_min.isoformat()) else time_min.isoformat() + "Z"
             time_max_str = time_max.isoformat() if (time_max.tzinfo or "+" in time_max.isoformat()) else time_max.isoformat() + "Z"

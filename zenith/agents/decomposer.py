@@ -271,6 +271,65 @@ class DecomposerAgent:
         
         return plan
     
+    @staticmethod
+    def _build_datetime(entities: dict) -> tuple[str | None, str | None]:
+        """Combine separate date and time entities into ISO datetime strings.
+
+        The entity extractor often returns dates and times as separate
+        arrays (e.g. dates=["2026-05-01"], times=["15:00"]).  This helper
+        merges them into start_time/end_time ISO strings that the Calendar
+        API can accept.
+        """
+        # If the entities already have explicit start_time / end_time, use them.
+        if entities.get("start_time") and entities.get("end_time"):
+            return entities["start_time"], entities["end_time"]
+
+        from datetime import datetime as _dt, timedelta as _td
+
+        dates = entities.get("dates", [])
+        times = entities.get("times", [])
+
+        base_date = dates[0] if dates else None
+        start_time_str = times[0] if times else None
+        end_time_str = times[1] if len(times) > 1 else None
+
+        start_iso: str | None = None
+        end_iso: str | None = None
+
+        if base_date and start_time_str:
+            try:
+                start_iso = f"{base_date}T{start_time_str}:00"
+                if end_time_str:
+                    end_iso = f"{base_date}T{end_time_str}:00"
+                else:
+                    # Default meeting duration: 1 hour
+                    from dateutil.parser import isoparse
+                    end_iso = (isoparse(start_iso) + _td(hours=1)).isoformat()
+            except Exception:
+                pass
+        elif base_date:
+            # Date but no time — default to 09:00-10:00
+            start_iso = f"{base_date}T09:00:00"
+            end_iso = f"{base_date}T10:00:00"
+        elif start_time_str:
+            # Time but no date — assume today
+            today = _dt.utcnow().strftime("%Y-%m-%d")
+            start_iso = f"{today}T{start_time_str}:00"
+            if end_time_str:
+                end_iso = f"{today}T{end_time_str}:00"
+            else:
+                from dateutil.parser import isoparse
+                end_iso = (isoparse(start_iso) + _td(hours=1)).isoformat()
+
+        # Also check for the direct keys the LLM entity extractor
+        # sometimes provides.
+        if not start_iso and entities.get("start_time"):
+            start_iso = entities["start_time"]
+        if not end_iso and entities.get("end_time"):
+            end_iso = entities["end_time"]
+
+        return start_iso, end_iso
+
     async def _match_template(
         self,
         intent_name: str,
@@ -336,6 +395,14 @@ class DecomposerAgent:
                 template_key = "check_calendar"
             elif "gmail" in tools_needed:
                 template_key = "check_email"
+
+        # For meeting creation, pre-compute start/end from entity fragments
+        if template_key == "create_meeting":
+            start_iso, end_iso = self._build_datetime(entities)
+            if start_iso:
+                entities["start_time"] = start_iso
+            if end_iso:
+                entities["end_time"] = end_iso
         
         if template_key and template_key in PLAN_TEMPLATES:
             template = PLAN_TEMPLATES[template_key]
@@ -353,6 +420,8 @@ class DecomposerAgent:
                         step_params[param] = entities["meeting_names"][0]
                     elif param == "summary" and entities.get("meeting_names"):
                         step_params[param] = entities["meeting_names"][0]
+                    elif param == "summary" and entities.get("task_descriptions"):
+                        step_params[param] = entities["task_descriptions"][0]
                     elif param == "query" and entities.get("search_queries"):
                         step_params[param] = entities["search_queries"][0]
                     elif param == "query" and entities.get("email_subjects"):
@@ -367,6 +436,17 @@ class DecomposerAgent:
                         step_params[param] = entities["start_time"]
                     elif param == "time_max" and entities.get("end_time"):
                         step_params[param] = entities["end_time"]
+                    elif param == "start_time" and entities.get("start_time"):
+                        step_params[param] = entities["start_time"]
+                    elif param == "end_time" and entities.get("end_time"):
+                        step_params[param] = entities["end_time"]
+                    elif param == "attendees" and entities.get("emails"):
+                        step_params[param] = entities["emails"]
+                    elif param == "attendees" and entities.get("people"):
+                        step_params[param] = entities["people"]
+                    elif param == "conference_data":
+                        # Default to True for meetings — users expect a Meet link
+                        step_params[param] = True
                     elif param == "hours":
                         step_params[param] = 24
                     elif param == "show_completed":
@@ -390,7 +470,8 @@ class DecomposerAgent:
                     if param == "thread_id" and "thread_id" not in step_params:
                         return None
                 
-                # Validation for critical params
+                # Validation for critical params — return None to fall through
+                # to the LLM-based _generate_plan which can infer missing data.
                 action = step["action"]
                 if action == "tasks.add_task" and "title" not in step_params:
                     return None
@@ -403,6 +484,7 @@ class DecomposerAgent:
                 if action == "gmail.send_email" and ("to" not in step_params or "subject" not in step_params or "body" not in step_params):
                     return None
                 if action == "calendar.create_event" and ("summary" not in step_params or "start_time" not in step_params or "end_time" not in step_params):
+                    # Missing date/time info — let LLM figure it out
                     return None
                 if action == "tasks.set_reminder" and ("title" not in step_params or "remind_at" not in step_params):
                     return None

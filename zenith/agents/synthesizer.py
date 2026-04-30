@@ -411,12 +411,13 @@ Output valid JSON array only."""
         )
         
         import json
+        import re as _re
         try:
             response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
+            # Robust JSON extraction: find the first [...] array block
+            json_match = _re.search(r'\[[\s\S]*\]', response)
+            if json_match:
+                return json.loads(json_match.group())
             return json.loads(response)
         except json.JSONDecodeError:
             return []
