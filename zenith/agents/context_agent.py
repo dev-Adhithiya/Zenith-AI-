@@ -178,7 +178,7 @@ class ContextAgent:
             }
 
         email_keywords = ("email", "emails", "mail", "gmail", "inbox", "unread", "sender", "subject")
-        calendar_keywords = ("calendar", "meeting", "meet", "schedule", "event", "availability")
+        calendar_keywords = ("calendar", "meeting", "meet", "schedule", "event", "availability", "gmeet", "google meet", "video call", "conference call")
         task_keywords = ("task", "tasks", "todo", "to-do", "remind", "reminder")
         note_keywords = ("note", "notes", "knowledge base")
 
@@ -199,7 +199,74 @@ class ContextAgent:
                 "resolved_entities": {},
             }
 
-        if any(keyword in message for keyword in email_keywords):
+        # Check for forced intents from UI Tools
+        if "[force intent: meeting]" in message:
+            return {
+                "category": "B",
+                "intent": "create_event",
+                "requires_tools": ["calendar"],
+                "confidence": 1.0,
+                "resolved_entities": {},
+            }
+        elif "[force intent: task]" in message:
+            return {
+                "category": "B",
+                "intent": "add_task",
+                "requires_tools": ["tasks"],
+                "confidence": 1.0,
+                "resolved_entities": {},
+            }
+        elif "[force intent: notes]" in message:
+            return {
+                "category": "B",
+                "intent": "save_note",
+                "requires_tools": ["notes"],
+                "confidence": 1.0,
+                "resolved_entities": {},
+            }
+        elif "[force intent: email]" in message:
+            return {
+                "category": "B",
+                "intent": "send_email",
+                "requires_tools": ["gmail"],
+                "confidence": 1.0,
+                "resolved_entities": {},
+            }
+
+        # Check for calendar-composing intent explicitly before email keywords
+        # to avoid misclassifying "create meeting with user@gmail.com" as an email task.
+        meeting_create_phrases = ("create", "schedule", "set up", "book", "invite", "arrange", "organize", "set a", "make a")
+        if any(keyword in message for keyword in calendar_keywords) and any(phrase in message for phrase in meeting_create_phrases):
+            return {
+                "category": "B",
+                "intent": "create_event",
+                "requires_tools": ["calendar"],
+                "confidence": 0.95,
+                "resolved_entities": {},
+            }
+
+        # Catch standalone meeting-creation phrases even without explicit calendar keywords
+        # e.g. "create a meeting tomorrow", "set up a gmeet", "book a video call"
+        standalone_meeting_phrases = (
+            "create meeting", "create a meeting", "schedule meeting", "schedule a meeting",
+            "set up meeting", "set up a meeting", "book meeting", "book a meeting",
+            "create gmeet", "create a gmeet", "create google meet",
+            "set up a call", "book a call", "schedule a call",
+            "create a video call", "schedule video call",
+            "invite on meeting", "invite to meeting",
+        )
+        if any(phrase in message for phrase in standalone_meeting_phrases):
+            return {
+                "category": "B",
+                "intent": "create_event",
+                "requires_tools": ["calendar"],
+                "confidence": 0.95,
+                "resolved_entities": {},
+            }
+
+        # Email keyword check — but skip if message is primarily about meetings
+        # (avoids misclassifying "invite user@gmail.com to meeting" as email intent)
+        if any(keyword in message for keyword in email_keywords) and not any(kw in message for kw in ("meeting", "meet", "calendar", "event", "gmeet")):
             if any(phrase in message for phrase in ("send email", "draft email", "reply to", "compose email")):
                 intent_name = "send_email"
             elif any(phrase in message for phrase in ("details", "open that email", "show that email", "tell me about")):
@@ -217,13 +284,10 @@ class ContextAgent:
             }
 
         if any(keyword in message for keyword in calendar_keywords):
-            if any(phrase in message for phrase in ("create", "schedule", "set up", "book")):
-                intent_name = "create_event"
-            else:
-                intent_name = "check_calendar"
+            # create_event is now handled above for stronger phrases
             return {
                 "category": "B",
-                "intent": intent_name,
+                "intent": "check_calendar",
                 "requires_tools": ["calendar"],
                 "confidence": 0.88,
                 "resolved_entities": {},

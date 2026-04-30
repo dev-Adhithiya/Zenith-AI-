@@ -144,7 +144,8 @@ Instructions:
 6. Provide brief reasoning for your plan.
 7. If the user asks to draft/generate email content, write actual professional content.
 8. For dates/times, use ISO format.
-9. If the user mentions "meeting" or "meet link", use calendar.create_event with conference_data=true.
+9. If the user mentions "meeting", "meet link", "gmeet", "google meet", "video call", or any meeting-related phrase, you MUST use calendar.create_event with conference_data=true. ALWAYS set conference_data=true for meetings — this generates the Google Meet link.
+10. NEVER create a task when the user asks for a meeting. Use calendar.create_event instead.
 
 Output ONLY valid JSON in this exact schema:
 {{
@@ -186,7 +187,15 @@ Create an execution plan:"""
             max_tokens=1200,
         )
 
-        return self._parse_plan(response)
+        plan = self._parse_plan(response)
+
+        # Post-process: force conference_data=true on any calendar.create_event step
+        for step in plan.get("steps", []):
+            if step.get("action") == "calendar.create_event":
+                step.setdefault("params", {})
+                step["params"]["conference_data"] = True
+
+        return plan
 
     @staticmethod
     def _parse_plan(raw: str) -> dict:

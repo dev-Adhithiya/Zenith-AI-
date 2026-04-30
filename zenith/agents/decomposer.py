@@ -225,6 +225,23 @@ class DecomposerAgent:
                     "requires_tools": ["notes"]
                 }
                 category = "B"
+            else:
+                # Catch meeting-creation phrases that the classifier missed
+                meeting_create_phrases = (
+                    "create meeting", "create a meeting", "schedule meeting",
+                    "schedule a meeting", "set up meeting", "set up a meeting",
+                    "book meeting", "book a meeting", "gmeet", "google meet",
+                    "video call", "meet link", "invite on meeting",
+                    "invite to meeting", "create a call", "schedule a call",
+                )
+                if any(phrase in resolved_message for phrase in meeting_create_phrases):
+                    intent = {
+                        **intent,
+                        "category": "B",
+                        "intent": "create_event",
+                        "requires_tools": ["calendar"]
+                    }
+                    category = "B"
         
         # Category A: General conversation - no tool execution needed
         if category == "A":
@@ -264,6 +281,12 @@ class DecomposerAgent:
         if not plan:
             # Generate custom plan with LLM
             plan = await self._generate_plan(context)
+        
+        # Post-process: ensure conference_data=true on any calendar.create_event step
+        for step in plan.get("steps", []):
+            if step.get("action") == "calendar.create_event":
+                step.setdefault("params", {})
+                step["params"]["conference_data"] = True
         
         logger.info("Decomposed request", 
                    plan_type=plan.get("type"),
@@ -579,7 +602,7 @@ Output a JSON execution plan:
 Extract parameter values from the context when available.
 If the user asks you to draft or generate content (like an email body or event description), you MUST write/generate that content yourself and include it in the parameters.
 If the user asks to save a note from the previous conversation (e.g. "add that to my notes"), you MUST extract the actual detailed content from the Recent Conversation history and place it entirely into the 'content' parameter. DO NOT just put the title into the content.
-If the user mentions "meeting", "meet link", or "video call", you MUST output an action for `calendar.create_event` and explicitly set `"conference_data": true` in the parameters instead of adding a task!
+If the user mentions "meeting", "meet link", "gmeet", "google meet", "video call", or any meeting-related phrase, you MUST output an action for `calendar.create_event` and ALWAYS set `"conference_data": true` in the parameters instead of adding a task! EVERY meeting MUST have conference_data=true to generate a Google Meet link.
 For dates/times, use ISO format (YYYY-MM-DDTHH:MM:SS).
 Output valid JSON only."""
 

@@ -2,11 +2,11 @@ import { useState, KeyboardEvent, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChat } from '../../contexts/ChatContext';
 import { useVoice } from '../../contexts/VoiceContext';
-import { Send, Mic, Square, Sparkles, Upload, Plus, SlidersHorizontal, Mail, X, Check } from 'lucide-react';
+import { Send, Mic, Square, Sparkles, Upload, Plus, SlidersHorizontal, Mail, X, Check, Calendar, CheckSquare, FileText } from 'lucide-react';
 import { InputAreaAttachments } from './InputAreaAttachments';
 
 export function InputArea() {
-  const { sendMessage, isLoading, isEmailModeActive, setIsEmailModeActive, stopMessage } = useChat();
+  const { sendMessage, isLoading, activeTool, setActiveTool, stopMessage } = useChat();
   const { isListening, transcript, toggleListening, isSupported, stopListening, clearTranscript } = useVoice();
   const [input, setInput] = useState('');
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -240,12 +240,12 @@ export function InputArea() {
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     className="absolute bottom-full left-0 mb-2 w-48 rounded-2xl bg-[#2a2a2a] border border-white/10 shadow-xl overflow-hidden z-50"
                   >
-                    <div className="p-2">
+                    <div className="p-2 space-y-1">
                       <div className="px-3 py-1.5 text-xs text-white/40 font-medium">Tools</div>
                       <button
                         className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-white/90 hover:bg-white/10 transition-colors"
                         onClick={() => {
-                          setIsEmailModeActive(true);
+                          setActiveTool(activeTool === 'email' ? null : 'email');
                           setShowToolsDropdown(false);
                         }}
                       >
@@ -253,7 +253,49 @@ export function InputArea() {
                           <Mail className="w-4 h-4 text-blue-400" />
                           Email
                         </div>
-                        {isEmailModeActive && <Check className="w-4 h-4 text-blue-400" />}
+                        {activeTool === 'email' && <Check className="w-4 h-4 text-blue-400" />}
+                      </button>
+
+                      <button
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-white/90 hover:bg-white/10 transition-colors"
+                        onClick={() => {
+                          setActiveTool(activeTool === 'meeting' ? null : 'meeting');
+                          setShowToolsDropdown(false);
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-emerald-400" />
+                          Meeting
+                        </div>
+                        {activeTool === 'meeting' && <Check className="w-4 h-4 text-emerald-400" />}
+                      </button>
+
+                      <button
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-white/90 hover:bg-white/10 transition-colors"
+                        onClick={() => {
+                          setActiveTool(activeTool === 'task' ? null : 'task');
+                          setShowToolsDropdown(false);
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckSquare className="w-4 h-4 text-purple-400" />
+                          Task
+                        </div>
+                        {activeTool === 'task' && <Check className="w-4 h-4 text-purple-400" />}
+                      </button>
+
+                      <button
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm text-white/90 hover:bg-white/10 transition-colors"
+                        onClick={() => {
+                          setActiveTool(activeTool === 'notes' ? null : 'notes');
+                          setShowToolsDropdown(false);
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-amber-400" />
+                          Notes
+                        </div>
+                        {activeTool === 'notes' && <Check className="w-4 h-4 text-amber-400" />}
                       </button>
                     </div>
                   </motion.div>
@@ -261,20 +303,32 @@ export function InputArea() {
               </AnimatePresence>
             </div>
 
-            {/* Active Email Pill */}
+            {/* Active Tool Pill */}
             <AnimatePresence>
-              {isEmailModeActive && (
+              {activeTool && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8, x: -10 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.8, x: -10 }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-sm font-medium ml-1"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ml-1 border ${
+                    activeTool === 'email' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' :
+                    activeTool === 'meeting' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' :
+                    activeTool === 'task' ? 'bg-purple-500/20 border-purple-500/30 text-purple-300' :
+                    'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                  }`}
                 >
-                  <Mail className="w-4 h-4" />
-                  Email
+                  {activeTool === 'email' && <Mail className="w-4 h-4" />}
+                  {activeTool === 'meeting' && <Calendar className="w-4 h-4" />}
+                  {activeTool === 'task' && <CheckSquare className="w-4 h-4" />}
+                  {activeTool === 'notes' && <FileText className="w-4 h-4" />}
+                  
+                  {activeTool === 'email' ? 'Email' :
+                   activeTool === 'meeting' ? 'Meeting' :
+                   activeTool === 'task' ? 'Task' : 'Notes'}
+                  
                   <button
-                    onClick={() => setIsEmailModeActive(false)}
-                    className="ml-1 p-0.5 rounded-full hover:bg-blue-500/20 transition-colors"
+                    onClick={() => setActiveTool(null)}
+                    className="ml-1 p-0.5 rounded-full hover:bg-white/10 transition-colors"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>

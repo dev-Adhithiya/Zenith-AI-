@@ -9,11 +9,15 @@ export interface EmailDraft {
   originalMessageId?: string;
 }
 
+export type ToolMode = 'email' | 'meeting' | 'task' | 'notes' | null;
+
 interface ChatContextType {
   messages: ChatMessage[];
   sessionId: string | null;
   isLoading: boolean;
   error: string | null;
+  activeTool: ToolMode;
+  setActiveTool: (tool: ToolMode) => void;
   isEmailModeActive: boolean;
   setIsEmailModeActive: (active: boolean) => void;
   emailDraft: EmailDraft | null;
@@ -44,7 +48,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isEmailModeActive, setIsEmailModeActive] = useState(false);
+  const [activeTool, setActiveTool] = useState<ToolMode>(null);
+  const isEmailModeActive = activeTool === 'email';
+  const setIsEmailModeActive = useCallback((active: boolean) => setActiveTool(active ? 'email' : null), []);
   const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -117,10 +123,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     abortControllerRef.current = new AbortController();
 
     try {
+      let finalContent = content;
+      if (activeTool === 'email' && !finalContent.toLowerCase().includes('email')) {
+        finalContent = `[Force Intent: Email] ${content}`;
+      } else if (activeTool === 'meeting') {
+        finalContent = `[Force Intent: Meeting] ${content}`;
+      } else if (activeTool === 'task') {
+        finalContent = `[Force Intent: Task] ${content}`;
+      } else if (activeTool === 'notes') {
+        finalContent = `[Force Intent: Notes] ${content}`;
+      }
+
       // Send to backend, including emailDraft if we are in email mode
       const payloadDraft = isEmailModeActive && emailDraft ? emailDraft : undefined;
       const response: ChatResponse = await chatAPI.sendMessage(
-        content, 
+        finalContent, 
         sessionId || undefined, 
         images, 
         payloadDraft, 
@@ -203,7 +220,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [sessionId, isLoading, isEmailModeActive, emailDraft]);
+  }, [sessionId, isLoading, activeTool, isEmailModeActive, emailDraft]);
 
   const addLocalMessage = useCallback((message: Omit<ChatMessage, 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, timestamp: new Date().toISOString() }]);
@@ -246,6 +263,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     sessionId,
     isLoading,
     error,
+    activeTool,
+    setActiveTool,
     isEmailModeActive,
     setIsEmailModeActive,
     emailDraft,

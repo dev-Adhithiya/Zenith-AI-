@@ -227,6 +227,7 @@ When presenting lists:
         
         prompt_parts.append("\nGenerate a concise, informative response based on these results.")
         prompt_parts.append("Keep it brief and factual. No questions or follow-up suggestions.")
+        prompt_parts.append("IMPORTANT: If a Google Meet link (meet_link) is present in the results, you MUST include it in your response so the user can join. Format it clearly.")
         
         return "\n".join(prompt_parts)
     
