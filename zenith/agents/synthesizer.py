@@ -66,8 +66,18 @@ When presenting lists:
         dynamic_system_instruction = self._build_system_instruction(
             user_preferences=context.get("user_preferences"),
             email_draft=context.get("email_draft"),
-            intent=intent
+            intent=context.get("intent")
         )
+        
+        if execution_results:
+            results_prompt = await self._build_results_prompt(resolved_message, execution_results)
+            dynamic_system_instruction += "\n\n" + results_prompt
+        else:
+            dynamic_system_instruction += (
+                "\n\nCRITICAL RULE: No backend tools were executed for this request. "
+                "You MUST NOT claim that you added, updated, created, sent, or saved anything. "
+                "If the user asked you to perform an action, tell them you were unable to execute it or ask for more clarification."
+            )
         
         # Use custom prompt if provided
         if custom_prompt:

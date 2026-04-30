@@ -140,12 +140,11 @@ Instructions:
 2. Decide if this is a "simple" (1 step) or "multi_step" (2+ steps) task.
 3. List the steps in optimal execution order.
 4. Assess risk: "low" (read-only), "medium" (single write), "high" (bulk write / multi-recipient).
-5. Set requires_confirmation=true for any write operations.
-6. Provide brief reasoning for your plan.
-7. If the user asks to draft/generate email content, write actual professional content.
-8. For dates/times, use ISO format.
-9. If the user mentions "meeting", "meet link", "gmeet", "google meet", "video call", or any meeting-related phrase, you MUST use calendar.create_event with conference_data=true. ALWAYS set conference_data=true for meetings — this generates the Google Meet link.
-10. NEVER create a task when the user asks for a meeting. Use calendar.create_event instead.
+5. Provide brief reasoning for your plan.
+6. If the user asks to draft/generate email content, write actual professional content.
+7. For dates/times, use ISO format.
+8. If the user mentions "meeting", "meet link", "gmeet", "google meet", "video call", or any meeting-related phrase, you MUST use calendar.create_event with conference_data=true. ALWAYS set conference_data=true for meetings — this generates the Google Meet link.
+9. NEVER create a task when the user asks for a meeting. Use calendar.create_event instead.
 
 Output ONLY valid JSON in this exact schema:
 {{
@@ -158,7 +157,7 @@ Output ONLY valid JSON in this exact schema:
             "description": "what this step does"
         }}
     ],
-    "requires_confirmation": true/false,
+    "requires_execution": true,
     "risk_level": "low" or "medium" or "high",
     "reasoning": "brief explanation of plan strategy"
 }}"""
@@ -222,7 +221,7 @@ Create an execution plan:"""
                 "goal": "unknown",
                 "complexity": "simple",
                 "steps": [],
-                "requires_confirmation": False,
+                "requires_execution": False,
                 "risk_level": "low",
                 "reasoning": "Failed to parse planner output.",
             }
@@ -231,7 +230,13 @@ Create an execution plan:"""
         plan.setdefault("goal", "unknown")
         plan.setdefault("complexity", "simple")
         plan.setdefault("steps", [])
-        plan.setdefault("requires_confirmation", False)
+        
+        # If there are steps, we definitely require execution
+        if len(plan.get("steps", [])) > 0:
+            plan["requires_execution"] = True
+        else:
+            plan.setdefault("requires_execution", False)
+            
         plan.setdefault("risk_level", "low")
         plan.setdefault("reasoning", "")
 

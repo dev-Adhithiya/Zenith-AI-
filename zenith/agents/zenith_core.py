@@ -331,7 +331,11 @@ class ZenithCore:
             execution_results = None
             requires_confirmation = False
 
-            if plan.get("requires_execution"):
+            requires_execution = plan.get("requires_execution")
+            if not requires_execution and len(plan.get("steps", [])) > 0:
+                requires_execution = True
+
+            if requires_execution:
                 if is_valid:
                     execution_results = await self.executor.execute_plan(
                         plan=plan,
