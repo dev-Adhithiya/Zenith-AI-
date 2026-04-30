@@ -151,7 +151,7 @@ export function TasksPanel() {
     queryKey: ['tasks'],
     queryFn: () => tasksAPI.listTasks(false),
     enabled: isAuthenticated,
-    refetchInterval: isExpanded ? 60000 : false,
+    refetchInterval: isExpanded ? 15000 : false,
   });
 
   const addTaskMutation = useMutation({

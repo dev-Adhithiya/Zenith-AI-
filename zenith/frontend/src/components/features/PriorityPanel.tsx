@@ -564,7 +564,7 @@ export function PriorityPanel() {
     queryKey: ['priority-feed'],
     queryFn: () => priorityAPI.getFeed(),
     enabled: isAuthenticated,
-    refetchInterval: isExpanded ? 60000 : false,
+    refetchInterval: isExpanded ? 15000 : false,
   });
 
   const items = useMemo(
